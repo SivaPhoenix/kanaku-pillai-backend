@@ -84,6 +84,7 @@ docs/                       PROJECT.md  design-spec.md  api/README.md  auth/goog
 - Recurrence generation is idempotent with a unique index `{ recurrenceId, occurrenceDate }`. Duplicate key errors mean "already generated" and are not failures.
 - Soft delete: `deletedAt` set; the undo endpoint restores it within the window. The purge job hard-deletes after 30 days. Archived categories and accounts are excluded from pickers, never from history.
 - Delete account: revoke all sessions immediately, then the job hard-deletes every collection's documents for that `userId`.
+- Category and account `icon` values are icon names from the clients' fixed icon list (validate against an allowlist), never emoji — the UI never shows emoji (product decision 13 Nov 2026).
 
 ## Security rules
 
@@ -135,6 +136,7 @@ docs/                       PROJECT.md  design-spec.md  api/README.md  auth/goog
 
 ## Working rules
 
+- **Use subagents on cheaper models for scoped work.** Do not run every task on Opus. Delegate well-specified work to a subagent with `model: "sonnet"` (implementation from a clear brief, reviews, tests) or `model: "haiku"` (mechanical edits, searches, doc syncs). Keep Opus for architecture, design decisions and integrating results. Give parallel subagents separate files, and verify what each one returns before reporting it done. The agents in `.claude/agents/` already run on Sonnet.
 - Plan first for anything larger than a small fix. Build after the product owner approves.
 - Work on `feat/…`, `fix/…` or `chore/…` branches, then open a PR to `main`. Conventional Commit messages.
 - Never commit secrets, `.env`, real user data or connection strings.
