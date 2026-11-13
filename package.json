@@ -1,6 +1,6 @@
 {
   "name": "kanaku-pillai-backend",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Kanaku Pillai expense tracker - REST API",
   "type": "module",
