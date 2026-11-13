@@ -108,5 +108,13 @@ export const STARTER_CATEGORIES = Object.freeze({
   ],
 });
 
+// Per-user caps against abuse; creating past one is 409 LIMIT_REACHED.
+export const LIMITS = Object.freeze({
+  accounts: 50,
+  categoriesPerKind: 100,
+  favourites: 100,
+  activeRecurrences: 100,
+});
+
 export const SOFT_DELETE_RETENTION_DAYS = 30;
 export const UNDO_WINDOW_SECONDS = 10;

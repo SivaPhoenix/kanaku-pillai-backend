@@ -29,5 +29,10 @@ export async function deleteAllForUser(userId) {
   }
   const user = await User.deleteOne({ _id: userId });
   counts.User = user.deletedCount;
+  // Not one transaction (too large for big accounts), so a second sweep catches rows in-flight requests inserted meanwhile.
+  for (const model of USER_OWNED_MODELS) {
+    const result = await model.deleteMany({ userId });
+    counts[model.modelName] += result.deletedCount;
+  }
   return counts;
 }

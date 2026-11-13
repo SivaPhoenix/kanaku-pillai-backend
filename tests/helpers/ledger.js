@@ -37,6 +37,7 @@ export async function seedLedger(userId, { opening = {} } = {}) {
     Account.create({
       userId,
       nameKey: fields.name.toLowerCase(),
+      activeNameKey: fields.name.toLowerCase(),
       sortOrder: index,
       openingBalanceMinor: 0,
       ...fields,
@@ -93,6 +94,7 @@ export async function seedLedger(userId, { opening = {} } = {}) {
       kind,
       name,
       nameKey: name.toLowerCase(),
+      activeNameKey: name.toLowerCase(),
       icon,
       color,
       sortOrder: index,

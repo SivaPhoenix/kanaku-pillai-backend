@@ -11,6 +11,8 @@ import {
   addMonthsClamped,
   daysOfMonth,
   instantAt,
+  isValidLocalDate,
+  isValidMonth,
   localDateOf,
   nextOccurrenceDate,
   periodRanges,
@@ -135,5 +137,19 @@ describe("balances", () => {
       liabilitiesMinor: 8000,
       netWorthMinor: 131000 - 8000,
     });
+  });
+});
+
+describe("date validity bounds", () => {
+  it("only accepts years 1970 to 2100", () => {
+    expect(isValidLocalDate("1970-01-01")).toBe(true);
+    expect(isValidLocalDate("2100-12-31")).toBe(true);
+    expect(isValidLocalDate("1969-12-31")).toBe(false);
+    expect(isValidLocalDate("2101-01-01")).toBe(false);
+    expect(isValidLocalDate("0001-01-01")).toBe(false);
+    expect(isValidMonth("1970-01")).toBe(true);
+    expect(isValidMonth("2100-12")).toBe(true);
+    expect(isValidMonth("1969-12")).toBe(false);
+    expect(isValidMonth("2101-01")).toBe(false);
   });
 });

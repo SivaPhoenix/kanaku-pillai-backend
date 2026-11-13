@@ -9,12 +9,23 @@ export function isValidZone(tzid) {
   return typeof tzid === "string" && IANAZone.isValidZone(tzid);
 }
 
+const inSupportedYears = (value) =>
+  Number(value.slice(0, 4)) >= 1970 && Number(value.slice(0, 4)) <= 2100;
+
 export function isValidLocalDate(value) {
-  return LOCAL_DATE.test(value) && DateTime.fromISO(value, { zone: "utc" }).isValid;
+  return (
+    LOCAL_DATE.test(value) &&
+    inSupportedYears(value) &&
+    DateTime.fromISO(value, { zone: "utc" }).isValid
+  );
 }
 
 export function isValidMonth(value) {
-  return MONTH.test(value) && DateTime.fromISO(`${value}-01`, { zone: "utc" }).isValid;
+  return (
+    MONTH.test(value) &&
+    inSupportedYears(value) &&
+    DateTime.fromISO(`${value}-01`, { zone: "utc" }).isValid
+  );
 }
 
 // The calendar day an instant falls on in the zone it was recorded in (never the viewer's zone).

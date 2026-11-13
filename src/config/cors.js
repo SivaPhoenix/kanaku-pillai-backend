@@ -14,6 +14,6 @@ export const corsOptions = Object.freeze({
     "X-Client-Platform",
     REQUEST_ID_HEADER,
   ],
-  exposedHeaders: [REQUEST_ID_HEADER, "Retry-After"],
+  exposedHeaders: [REQUEST_ID_HEADER, "Retry-After", "X-Export-Truncated"],
   maxAge: 600,
 });

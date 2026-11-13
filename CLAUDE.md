@@ -11,7 +11,7 @@ Sibling repos (cloned next to this one): `../kanaku-pillai-web` (React + Vite) a
 - **JavaScript (no TypeScript)**, ES modules (`"type": "module"`, `import`/`export`, `.js` extensions in relative imports). Node.js ≥ 22.13.
 - Express 5, Mongoose 9 on MongoDB **running as a replica set** (multi-document transactions are required). Dev and prod use MongoDB Atlas (a replica set by default). Tests use an in-memory replica set, so no local MongoDB install is needed.
 - Zod 4 for env and request validation, pino and pino-http for logs, helmet, cors, compression.
-- Auth: @node-rs/argon2 (argon2id passwords), jsonwebtoken (HS256 access tokens), google-auth-library (Google ID-token verification), cookie-parser (web refresh cookie), express-rate-limit with a MongoDB store (`middleware/rate-limit.js`) so limits hold across instances. Later: luxon (time zones).
+- Auth: @node-rs/argon2 (argon2id passwords), jsonwebtoken (HS256 access tokens), google-auth-library (Google ID-token verification), cookie-parser (web refresh cookie), express-rate-limit with a MongoDB store (`middleware/rate-limit.js`) so limits hold across instances. luxon for every time-zone calculation (only through `src/utils/time.js`).
 - Tests: Vitest, supertest, mongodb-memory-server (replica-set mode). Lint: ESLint 10 (flat config) plus Prettier.
 - Env loading: Node's built-in `--env-file-if-exists=.env` (no dotenv).
 
@@ -23,7 +23,8 @@ Sibling repos (cloned next to this one): `../kanaku-pillai-web` (React + Vite) a
 - `npm run check`: lint, format check and tests (what CI runs)
 - Health: `GET /health` (liveness, always 200 while the process runs) and `GET /ready` (200 only while MongoDB is connected, otherwise 503)
 - `npm run db:indexes`: builds every index on the configured database (the production deploy step)
-- Planned: `npm run worker` (job process), `npm run seed` (design spec §10 fixtures, dev DB only)
+- `npm run worker` (production) / `npm run dev:worker` (reads `.env`, watch mode): the job process for repeat generation (every 15 min) and purge (daily), one runner at a time via a MongoDB lock. Run exactly the API and the worker as separate processes.
+- Planned: `npm run seed` (design spec §10 fixtures, dev DB only)
 
 ## Folder structure (production layout — follow it exactly)
 
@@ -95,6 +96,7 @@ docs/                       PROJECT.md  design-spec.md  api/README.md  auth/goog
 - Google sign-in: verify the ID token's signature, `iss`, `aud` (all our client IDs) and `exp`; require `email_verified`; identify by `sub`, never by email. Linking rules are in `docs/auth/google-sign-in.md`.
 - Forgot password responds identically whether or not the email exists. The OTP lasts 10 minutes, allows 5 attempts and has a resend cooldown. A reset revokes all sessions.
 - Rate limits on login, signup, google, forgot, verify-code and refresh, keyed by IP plus email.
+- Abuse caps (`LIMITS` in `constants/enums.js`, 409 `LIMIT_REACHED`): 50 accounts, 100 categories per kind, 100 favourites, 100 active repeat rules per user. Authenticated limits are keyed by user (`keyBy: "user"`): `writeRateLimit` (300 non-GET requests per 5 min, mounted after `requireAuth` in every resource router), `DELETE /me` 5 per 15 min, CSV export 10 per 15 min.
 - Mongoose `sanitizeFilter` and `strictQuery` are on (`config/db.js`), and Express uses the "simple" query parser. Never spread request data into a filter or update; build them from `req.validated` fields.
 - Logs never contain passwords, tokens, OTP codes or emails (pino `redact` in `config/logger.js`). Error responses never contain stack traces.
 - `.env` is never committed, printed or logged. `.env.example` lists every key with a safe or empty value. The Atlas URI holds a password, so treat it like one.

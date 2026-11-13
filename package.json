@@ -18,7 +18,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm run format:check && npm test",
-    "db:indexes": "node --env-file-if-exists=.env scripts/sync-indexes.js"
+    "db:indexes": "node --env-file-if-exists=.env scripts/sync-indexes.js",
+    "worker": "node src/worker.js",
+    "dev:worker": "node --env-file-if-exists=.env --watch src/worker.js",
+    "seed:demo": "node --env-file-if-exists=.env scripts/seed-demo.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",

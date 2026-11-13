@@ -9,6 +9,8 @@ const accountSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 40 },
     // Lower-cased name for case-insensitive uniqueness checks among a user's active accounts.
     nameKey: { type: String, required: true },
+    // Equals nameKey while the account is active and is absent once archived; a partial unique index enforces it.
+    activeNameKey: { type: String },
     type: { type: String, enum: ACCOUNT_TYPES, required: true },
     icon: { type: String, enum: ICON_NAMES, required: true },
     color: { type: String, enum: COLORS, required: true },
@@ -28,6 +30,10 @@ const accountSchema = new mongoose.Schema(
 
 accountSchema.index({ userId: 1, archivedAt: 1, sortOrder: 1 });
 accountSchema.index({ userId: 1, nameKey: 1 });
+accountSchema.index(
+  { userId: 1, activeNameKey: 1 },
+  { unique: true, partialFilterExpression: { activeNameKey: { $exists: true } } },
+);
 accountSchema.index({ userId: 1, linkedAccountId: 1 }, { sparse: true });
 
 export const Account = mongoose.model("Account", accountSchema);

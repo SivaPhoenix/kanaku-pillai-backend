@@ -1,6 +1,6 @@
 # Kanaku Pillai API — Contract (v1)
 
-Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kanaku-pillai-app`) clients build against this document. **Status:** auth and `GET /me` are built. Everything else in this document is the agreed v1 design, being built on the `feat/ledger-api` branch. Any change to a shape here is a contract change: update this file in the same PR and list the client impact.
+Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kanaku-pillai-app`) clients build against this document. **Status:** every endpoint in this document is built and tested (v1). The background worker (`npm run worker`) runs repeat generation and purge. Any change to a shape here is a contract change: update this file in the same PR and list the client impact.
 
 ## Conventions
 
@@ -13,19 +13,21 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 - **Money:** `amountMinor` is an integer in the user's currency minor unit, always > 0, with sign implied by `type`. Clients format it, and they never send or receive floats.
 - **Time:** `occurredAt` is an ISO-8601 UTC instant and `tzid` is an IANA zone. The server derives `localDate` (`YYYY-MM-DD`) and returns it read-only.
 - **Success:** `{ "data": … }`. Lists: `{ "data": [ … ], "page": { "nextCursor": "…" | null, "limit": 50 } }`. Pass `?cursor=` to continue, `limit` ≤ 100.
+- **Date bounds:** every `localDate` and month (request fields, filters, paths) must fall in the years 1970–2100. `occurredAt` (create, edit, duplicate) must be within the last 10 years and at most one year ahead (400). An entry created with `repeat` or `instalments` may be dated at most one year in the past (400 on `body.occurredAt`).
+- **Limits:** each user can have at most 50 active accounts, 100 active categories per kind, 100 favourites and 100 active repeat rules. Creating (or unarchiving) past a cap returns 409 `LIMIT_REACHED`. Rate limits (429 `RATE_LIMITED`): `DELETE /me` 5 per 15 minutes per user, `GET /transactions/export.csv` 10 per 15 minutes per user, and every non-GET request outside `/auth` 300 per 5 minutes per user. The auth limits are listed under Auth.
 - **Errors:** `{ "error": { "code": "VALIDATION_ERROR", "message": "…", "details": [{ "field": "amountMinor", "message": "…" }], "requestId": "…" } }`.
 
-| Status | Codes                                                                                                                                                                                                  |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 400    | `VALIDATION_ERROR`, transaction rule codes (see Shared shapes), `INSTALMENTS_NOT_ALLOWED`, `REPEAT_WITH_INSTALMENTS`                                                                                   |
-| 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`                                                                                         |
-| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                                                                                                           |
-| 413    | `PAYLOAD_TOO_LARGE`                                                                                                                                                                                    |
-| 400    | also `INVALID_JSON` (malformed request body)                                                                                                                                                           |
-| 404    | `NOT_FOUND` (also returned for records owned by another user)                                                                                                                                          |
-| 409    | `CONFLICT`, `EMAIL_TAKEN`, `NAME_TAKEN`, `ACCOUNT_ARCHIVED`, `CATEGORY_ARCHIVED`, `IN_USE` (archive instead), `TYPE_LOCKED`, `SETUP_ALREADY_DONE`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_IN_PROGRESS` |
-| 429    | `RATE_LIMITED` (with `Retry-After`)                                                                                                                                                                    |
-| 500    | `INTERNAL` (no details, no stack)                                                                                                                                                                      |
+| Status | Codes                                                                                                                                                                                                                   |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `VALIDATION_ERROR`, transaction rule codes (see Shared shapes), `INSTALMENTS_NOT_ALLOWED`, `REPEAT_WITH_INSTALMENTS`                                                                                                    |
+| 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`                                                                                                          |
+| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                                                                                                                            |
+| 413    | `PAYLOAD_TOO_LARGE`                                                                                                                                                                                                     |
+| 400    | also `INVALID_JSON` (malformed request body)                                                                                                                                                                            |
+| 404    | `NOT_FOUND` (also returned for records owned by another user)                                                                                                                                                           |
+| 409    | `CONFLICT`, `EMAIL_TAKEN`, `NAME_TAKEN`, `LIMIT_REACHED`, `ACCOUNT_ARCHIVED`, `CATEGORY_ARCHIVED`, `IN_USE` (archive instead), `TYPE_LOCKED`, `SETUP_ALREADY_DONE`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_IN_PROGRESS` |
+| 429    | `RATE_LIMITED` (with `Retry-After`)                                                                                                                                                                                     |
+| 500    | `INTERNAL` (no details, no stack)                                                                                                                                                                                       |
 
 ## Resources
 
@@ -231,18 +233,18 @@ Rule errors (400): `CATEGORY_REQUIRED`, `CATEGORY_NOT_ALLOWED`, `CATEGORY_KIND_M
 
 Clients show category and account names by joining with the (small, cached) `/categories` and `/accounts` lists.
 
-| Method | Path                           | Body → Response                                                                                             | Notes                                                                                    |
-| ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| GET    | `/transactions`                | filters below → list, newest first (`occurredAt` desc)                                                      | cursor paging, `limit` ≤ 100 (default 50)                                                |
-| GET    | `/transactions/summary`        | same filters → `{ count, incomeMinor, expenseMinor, netMinor }`                                             | net = income − expense (transfers excluded)                                              |
-| GET    | `/transactions/day/:localDate` | → `{ localDate, inMinor, outMinor, count, items: [transaction] }`                                           | up to 500 items                                                                          |
-| GET    | `/transactions/export.csv`     | same filters → `text/csv`                                                                                   | columns: Date, Time, Type, Amount, Currency, Category, Account, To account, Note         |
-| POST   | `/transactions`                | see below → `transaction`                                                                                   | 201; accepts `Idempotency-Key`                                                           |
-| GET    | `/transactions/:id`            | → `transaction`                                                                                             |                                                                                          |
-| PATCH  | `/transactions/:id`            | `{ type?, amountMinor?, categoryId?, accountId?, toAccountId?, occurredAt?, tzid?, note? }` → `transaction` | rules re-checked on the merged result; set `categoryId`/`toAccountId` to `null` to clear |
-| DELETE | `/transactions/:id`            | → `{ id, deletedAt, undoUntil }`                                                                            | soft delete; `undoUntil` = 10 s later (for the Undo toast)                               |
-| POST   | `/transactions/:id/restore`    | → `transaction`                                                                                             | works until the entry is purged (30 days)                                                |
-| POST   | `/transactions/:id/duplicate`  | `{ occurredAt?, tzid? }` → `transaction`                                                                    | 201; defaults to now in the original zone; accepts `Idempotency-Key`                     |
+| Method | Path                           | Body → Response                                                                                             | Notes                                                                                                                                                                            |
+| ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/transactions`                | filters below → list, newest first (`occurredAt` desc)                                                      | cursor paging, `limit` ≤ 100 (default 50)                                                                                                                                        |
+| GET    | `/transactions/summary`        | same filters → `{ count, incomeMinor, expenseMinor, netMinor }`                                             | net = income − expense (transfers excluded)                                                                                                                                      |
+| GET    | `/transactions/day/:localDate` | → `{ localDate, inMinor, outMinor, count, items: [transaction] }`                                           | up to 500 items                                                                                                                                                                  |
+| GET    | `/transactions/export.csv`     | same filters → `text/csv`                                                                                   | columns: Date, Time, Type, Amount, Currency, Category, Account, To account, Note. At most 10 000 rows (the newest); when more match, the response has `X-Export-Truncated: true` |
+| POST   | `/transactions`                | see below → `transaction`                                                                                   | 201; accepts `Idempotency-Key`                                                                                                                                                   |
+| GET    | `/transactions/:id`            | → `transaction`                                                                                             |                                                                                                                                                                                  |
+| PATCH  | `/transactions/:id`            | `{ type?, amountMinor?, categoryId?, accountId?, toAccountId?, occurredAt?, tzid?, note? }` → `transaction` | rules re-checked on the merged result; set `categoryId`/`toAccountId` to `null` to clear                                                                                         |
+| DELETE | `/transactions/:id`            | → `{ id, deletedAt, undoUntil }`                                                                            | soft delete; `undoUntil` = 10 s later (for the Undo toast)                                                                                                                       |
+| POST   | `/transactions/:id/restore`    | → `transaction`                                                                                             | works until the entry is purged (30 days)                                                                                                                                        |
+| POST   | `/transactions/:id/duplicate`  | `{ occurredAt?, tzid? }` → `transaction`                                                                    | 201; defaults to now in the original zone; accepts `Idempotency-Key`                                                                                                             |
 
 **List filters** (all optional): `from` and `to` (`localDate`, inclusive), `type` (`income`, `expense` or `transfer`), `accountId` (matches the from or the to side), `categoryId`, `q` (case-insensitive match on note, category name or account name; a number also matches that exact amount, so "240" finds ₹240.00), `min` and `max` (`amountMinor`), `cursor` and `limit`.
 
@@ -263,11 +265,11 @@ Clients show category and account names by joining with the (small, cached) `/ca
 }
 ```
 
-- `note` is up to 140 characters. `occurredAt` cannot be more than one year in the future.
+- `note` is up to 140 characters. `occurredAt` must be within the last 10 years and at most one year ahead. With `repeat` or `instalments` it can be at most one year in the past.
 - **`repeat`** (optional; `freq` is `daily`, `weekly`, `monthly` or `yearly`, `interval` is 1–365, `endsOn` an optional `localDate`) creates a repeat rule from this entry. This entry is the first occurrence. Later ones are generated by the server on their dates, exactly once each, even when no device is online. The client's "Custom" option is any `interval` above 1.
-- **`instalments`** (optional; `months` is 3, 6, 9 or 12) applies only to an `expense` on a `credit_card` account (400 `INSTALMENTS_NOT_ALLOWED`). It creates an instalment plan and N monthly expense entries on the same day of the month (clamped to the month's end) at the same local time. The amounts are `floor(amount / N)`, with the remainder on the first entry, so they sum exactly. The response is the first entry.
+- **`instalments`** (optional; `months` is 3, 6, 9 or 12) applies only to an `expense` on a `credit_card` account (400 `INSTALMENTS_NOT_ALLOWED`). It creates an instalment plan and N monthly expense entries on the same day of the month (clamped to the month's end) at the same local time. The amounts are `floor(amount / N)`, with the remainder on the first entry, so they sum exactly. The response is the first entry. `amountMinor` must be at least `months` (400 on `body.instalments.months`: "Amount is too small to split into that many instalments").
 - `repeat` and `instalments` cannot be combined (400 `REPEAT_WITH_INSTALMENTS`).
-- **`Idempotency-Key`** (UUID): sending the same key and the same body again within 24 hours returns the original response with the original status. The same key with a different body returns 409 `IDEMPOTENCY_KEY_REUSED`. While the first request is still running, a repeat returns 409 `IDEMPOTENCY_IN_PROGRESS`.
+- **`Idempotency-Key`** (UUID): sending the same key and the same body again within 24 hours returns the original response with the original status. The same key with a different body returns 409 `IDEMPOTENCY_KEY_REUSED`. While the first request is still running, a repeat returns 409 `IDEMPOTENCY_IN_PROGRESS`, unless that attempt is older than 60 seconds (it is presumed dead and the retry takes the key over).
 
 ### Stats — `/stats`
 
@@ -338,6 +340,8 @@ Applying a favourite is done by the client: it fills the Add form, and then a no
 | GET    | `/recurrences`     | → `[rule]` (active first, then by `nextOccurrence`)                                       |
 | PATCH  | `/recurrences/:id` | `{ amountMinor?, note?, endsOn?, paused? }` → `rule` (applies to future occurrences only) |
 | DELETE | `/recurrences/:id` | → 204. Stops future occurrences; past entries stay                                        |
+
+Resuming (`paused: false`) does not backfill: `nextOccurrence` moves to the first occurrence on or after today in the rule's zone, so occurrences that fell due while the rule was paused are never created. Creating a rule past 100 active ones returns 409 `LIMIT_REACHED`.
 
 ### Health
 

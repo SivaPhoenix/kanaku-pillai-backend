@@ -10,6 +10,8 @@ const idempotencyKeySchema = new mongoose.Schema(
     status: { type: String, enum: ["in_progress", "completed"], required: true },
     responseStatus: { type: Number },
     responseBody: { type: mongoose.Schema.Types.Mixed },
+    // When the current attempt started; an in_progress row older than the stale window can be taken over.
+    claimedAt: { type: Date },
     expiresAt: { type: Date, required: true },
   },
   { timestamps: true, collection: "idempotency_keys" },

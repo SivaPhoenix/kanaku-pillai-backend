@@ -4,7 +4,7 @@ REST API for **Kanaku Pillai** (கணக்குப் பிள்ளை, "th
 
 **Stack:** Node.js 22 · JavaScript (ES modules) · Express 5 · MongoDB Atlas (Mongoose 9) · Zod · pino · Vitest
 
-**Status:** foundation and auth are built: email/password sign-up and sign-in, Google sign-in, rotating refresh tokens, sign-out, rate limits and `GET /api/v1/me`. Accounts, categories and transactions are next.
+**Status:** v1 API built: auth (email/password + Google), profile and settings, setup, accounts with live balances and net worth, categories, transactions (search, filters, CSV export, instalments, repeat rules, soft delete and undo), stats, favourites, and a background worker for repeat entries and purging. See the [API contract](docs/api/README.md).
 
 ## Getting started
 
@@ -30,13 +30,16 @@ If the start fails with `querySrv ECONNREFUSED`, Node's DNS cannot resolve the A
 
 ## Scripts
 
-| Script                                  | What it does                                      |
-| --------------------------------------- | ------------------------------------------------- |
-| `npm run dev`                           | API with file watching, reads `.env`              |
-| `npm start`                             | Production start (env comes from the environment) |
-| `npm test`                              | Unit and integration tests (in-memory MongoDB)    |
-| `npm run lint` / `npm run format:check` | ESLint and Prettier checks                        |
-| `npm run check`                         | Lint, format check and tests, as CI runs them     |
+| Script                                  | What it does                                                                            |
+| --------------------------------------- | --------------------------------------------------------------------------------------- |
+| `npm run dev`                           | API with file watching, reads `.env`                                                    |
+| `npm start`                             | Production start (env comes from the environment)                                       |
+| `npm run worker` / `npm run dev:worker` | Background jobs: repeat entries and purge                                               |
+| `npm run seed:demo`                     | Recreates the demo account (credentials in `scripts/seed-demo.js`; never in production) |
+| `npm run db:indexes`                    | Backfills and builds every index (deploy step)                                          |
+| `npm test`                              | Unit and integration tests (in-memory MongoDB)                                          |
+| `npm run lint` / `npm run format:check` | ESLint and Prettier checks                                                              |
+| `npm run check`                         | Lint, format check and tests, as CI runs them                                           |
 
 ## Docs
 

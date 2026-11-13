@@ -33,8 +33,8 @@ function emailPart(req) {
   return email.slice(0, 254);
 }
 
-// Limits a route per client IP (IPv6 grouped by /56), optionally per IP + submitted email.
-export function createRateLimit({ name, windowMs, limit, byEmail = false }) {
+// Limits a route per client IP (IPv6 grouped by /56), per IP + submitted email, or per signed-in user.
+export function createRateLimit({ name, windowMs, limit, keyBy = "ip" }) {
   return rateLimit({
     windowMs,
     limit,
@@ -43,7 +43,10 @@ export function createRateLimit({ name, windowMs, limit, byEmail = false }) {
     store: new MongoRateLimitStore(`rl:${name}`),
     keyGenerator: (req) => {
       const ip = ipKeyGenerator(req.ip ?? "unknown");
-      return byEmail ? `${ip}:${emailPart(req)}` : ip;
+      if (keyBy === "ip+email") return `${ip}:${emailPart(req)}`;
+      // "user" needs requireAuth to have run first; without it the limit falls back to the IP.
+      if (keyBy === "user") return req.user?.id ? `user:${req.user.id}` : ip;
+      return ip;
     },
     handler: (_req, _res, next, options) => {
       next(
@@ -61,7 +64,36 @@ const MINUTE = 60 * 1000;
 
 export const authRateLimits = Object.freeze({
   signup: createRateLimit({ name: "signup", windowMs: 60 * MINUTE, limit: 10 }),
-  login: createRateLimit({ name: "login", windowMs: 15 * MINUTE, limit: 10, byEmail: true }),
+  login: createRateLimit({ name: "login", windowMs: 15 * MINUTE, limit: 10, keyBy: "ip+email" }),
   google: createRateLimit({ name: "google", windowMs: 15 * MINUTE, limit: 20 }),
   refresh: createRateLimit({ name: "refresh", windowMs: 15 * MINUTE, limit: 60 }),
 });
+
+// Per-user limits for authenticated routes (mount after requireAuth).
+export const deleteAccountRateLimit = createRateLimit({
+  name: "delete-account",
+  windowMs: 15 * MINUTE,
+  limit: 5,
+  keyBy: "user",
+});
+
+export const exportRateLimit = createRateLimit({
+  name: "export",
+  windowMs: 15 * MINUTE,
+  limit: 10,
+  keyBy: "user",
+});
+
+const writeLimiter = createRateLimit({
+  name: "write",
+  windowMs: 5 * MINUTE,
+  limit: 300,
+  keyBy: "user",
+});
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// General write limit for signed-in users; reads pass untouched.
+export function writeRateLimit(req, res, next) {
+  if (READ_METHODS.has(req.method)) return next();
+  return writeLimiter(req, res, next);
+}

@@ -42,3 +42,24 @@ export function hasPassword(userId, { session } = {}) {
     session ?? null,
   );
 }
+
+export function updateName(userId, name, { session } = {}) {
+  return User.findByIdAndUpdate(
+    userId,
+    { $set: { name } },
+    { returnDocument: "after", session },
+  ).lean();
+}
+
+// Sets only the given settings keys, leaving the rest of the settings subdocument alone.
+export function updateSettings(userId, changes, { session } = {}) {
+  const set = Object.fromEntries(Object.entries(changes).map(([key, v]) => [`settings.${key}`, v]));
+  return User.findByIdAndUpdate(userId, { $set: set }, { returnDocument: "after", session }).lean();
+}
+
+export function findByIdWithPassword(userId, { session } = {}) {
+  return User.findById(userId)
+    .select("+passwordHash")
+    .session(session ?? null)
+    .lean();
+}

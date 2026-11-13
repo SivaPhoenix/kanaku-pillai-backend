@@ -60,3 +60,18 @@ export function revokeAllForUser(userId, reason, { session, now = new Date() } =
     { session },
   );
 }
+
+export function listActiveForUser(userId, now = new Date()) {
+  return Session.find({ userId, revokedAt: null, expiresAt: trusted({ $gt: now }) })
+    .sort({ lastUsedAt: -1, _id: -1 })
+    .lean();
+}
+
+// Resolves to true only when an active session of this user was revoked.
+export async function revokeOwned(userId, sessionId, reason, now = new Date()) {
+  const result = await Session.updateOne(
+    { _id: sessionId, userId, revokedAt: null, expiresAt: trusted({ $gt: now }) },
+    { $set: { revokedAt: now, revokedReason: reason } },
+  );
+  return result.modifiedCount === 1;
+}
