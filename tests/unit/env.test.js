@@ -1,9 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { EnvError, loadEnv } from "../../src/config/env.js";
 
-const base = { MONGODB_URI: "mongodb://localhost:27017/kp?replicaSet=rs0" };
+const base = {
+  MONGODB_URI: "mongodb://localhost:27017/kp?replicaSet=rs0",
+  JWT_ACCESS_SECRET: "x".repeat(32),
+};
 
 describe("loadEnv", () => {
+  it("requires a JWT secret of at least 32 characters", () => {
+    expect(() => loadEnv({ ...base, JWT_ACCESS_SECRET: undefined })).toThrow(/JWT_ACCESS_SECRET/);
+    expect(() => loadEnv({ ...base, JWT_ACCESS_SECRET: "short" })).toThrow(/at least 32/);
+  });
+
+  it("validates Google client IDs and requires them in production", () => {
+    expect(
+      loadEnv({
+        ...base,
+        GOOGLE_CLIENT_IDS: "a-1.apps.googleusercontent.com, b.apps.googleusercontent.com",
+      }).GOOGLE_CLIENT_IDS,
+    ).toEqual(["a-1.apps.googleusercontent.com", "b.apps.googleusercontent.com"]);
+    expect(() => loadEnv({ ...base, GOOGLE_CLIENT_IDS: "my-client-secret" })).toThrow(
+      /GOOGLE_CLIENT_IDS/,
+    );
+    expect(() => loadEnv({ ...base, NODE_ENV: "production" })).toThrow(
+      /GOOGLE_CLIENT_IDS: is required in production/,
+    );
+  });
+
   it("applies defaults when only the required values are given", () => {
     const env = loadEnv(base);
     expect(env).toMatchObject({
@@ -30,10 +53,11 @@ describe("loadEnv", () => {
 
   it("accepts Atlas mongodb+srv URIs and rejects other schemes", () => {
     expect(
-      loadEnv({ MONGODB_URI: "mongodb+srv://u:p@cluster0.example.mongodb.net/kp" }).MONGODB_URI,
+      loadEnv({ ...base, MONGODB_URI: "mongodb+srv://u:p@cluster0.example.mongodb.net/kp" })
+        .MONGODB_URI,
     ).toMatch(/^mongodb\+srv:/);
     expect(() => loadEnv({})).toThrow(EnvError);
-    expect(() => loadEnv({ MONGODB_URI: "postgres://x" })).toThrow(/MONGODB_URI/);
+    expect(() => loadEnv({ ...base, MONGODB_URI: "postgres://x" })).toThrow(/MONGODB_URI/);
   });
 
   it("splits optional DNS servers and rejects non-IP entries", () => {

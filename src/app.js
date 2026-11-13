@@ -1,4 +1,5 @@
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -24,6 +25,7 @@ export function createApp() {
   app.use(cors(corsOptions));
   app.use(compression());
   app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
+  app.use(cookieParser());
 
   app.use(routes);
 

@@ -3,6 +3,7 @@ import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
 import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
+import { ensureIndexes as ensureRateLimitIndexes } from "./repositories/rate-limit.repository.js";
 
 let server;
 let shuttingDown = false;
@@ -41,7 +42,10 @@ async function start() {
     logger.info({ servers: env.DNS_SERVERS }, "Using configured DNS servers");
   }
 
-  await connectDb(env.MONGODB_URI, { autoIndex: env.NODE_ENV !== "production" });
+  const isProduction = env.NODE_ENV === "production";
+  await connectDb(env.MONGODB_URI, { autoIndex: !isProduction });
+  // Mongoose builds model indexes itself outside production; the raw rate-limit collection needs this call. Production runs `npm run db:indexes` at deploy.
+  if (!isProduction) await ensureRateLimitIndexes();
 
   server = createApp().listen(env.PORT, env.HOST, () => {
     logger.info({ host: env.HOST, port: env.PORT, env: env.NODE_ENV }, "API listening");

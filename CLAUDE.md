@@ -11,7 +11,7 @@ Sibling repos (cloned next to this one): `../kanaku-pillai-web` (React + Vite) a
 - **JavaScript (no TypeScript)**, ES modules (`"type": "module"`, `import`/`export`, `.js` extensions in relative imports). Node.js ≥ 22.13.
 - Express 5, Mongoose 9 on MongoDB **running as a replica set** (multi-document transactions are required). Dev and prod use MongoDB Atlas (a replica set by default). Tests use an in-memory replica set, so no local MongoDB install is needed.
 - Zod 4 for env and request validation, pino and pino-http for logs, helmet, cors, compression.
-- Added in the phases that need them: express-rate-limit (Mongo-backed store so limits hold across instances), argon2 (passwords), jsonwebtoken, google-auth-library, luxon (time zones).
+- Auth: @node-rs/argon2 (argon2id passwords), jsonwebtoken (HS256 access tokens), google-auth-library (Google ID-token verification), cookie-parser (web refresh cookie), express-rate-limit with a MongoDB store (`middleware/rate-limit.js`) so limits hold across instances. Later: luxon (time zones).
 - Tests: Vitest, supertest, mongodb-memory-server (replica-set mode). Lint: ESLint 10 (flat config) plus Prettier.
 - Env loading: Node's built-in `--env-file-if-exists=.env` (no dotenv).
 
@@ -22,7 +22,8 @@ Sibling repos (cloned next to this one): `../kanaku-pillai-web` (React + Vite) a
 - `npm run lint` / `lint:fix`, `npm run format` / `format:check`, `npm test`, `npm run test:watch`
 - `npm run check`: lint, format check and tests (what CI runs)
 - Health: `GET /health` (liveness, always 200 while the process runs) and `GET /ready` (200 only while MongoDB is connected, otherwise 503)
-- Planned: `npm run worker` (job process), `npm run seed` (design spec §10 fixtures, dev DB only), `npm run db:indexes`
+- `npm run db:indexes`: builds every index on the configured database (the production deploy step)
+- Planned: `npm run worker` (job process), `npm run seed` (design spec §10 fixtures, dev DB only)
 
 ## Folder structure (production layout — follow it exactly)
 
@@ -65,11 +66,12 @@ docs/                       PROJECT.md  design-spec.md  api/README.md  auth/goog
 
 1. **route → controller → service → repository → model.** No skipping layers, no upward imports. Routes only wire middleware (`auth`, `validate({ params, query, body })`, rate limit) and a controller.
 2. **Controllers** never import models or repositories. **Services** never import `express` or touch `req`/`res`. **Repositories** hold no business rules.
-3. **Every repository function takes `userId` as its first argument and puts it in the filter.** No `findById` without `userId`. This is the multi-tenant boundary and the top review item.
-4. **Multi-document writes** (instalment plan + N entries, archive checks, account deletion, refresh rotation, Google account linking) run in `mongoose.startSession()` / `session.withTransaction()`. The session is passed explicitly to repository calls.
-5. **Errors:** throw `new ApiError(status, code, message, details?)` from services. Codes live in `constants/error-codes.js` and are never renamed (clients branch on them). 404, not 403, when a record belongs to someone else. Express 5 forwards rejected async handlers to the error middleware, so no try/catch wrappers are needed in controllers.
-6. **Validation:** `validate({ params, query, body })` with Zod `.strict()` objects (unknown keys rejected). The parsed values are on **`req.validated.params|query|body`** (Express 5 makes `req.query` read-only). Never read raw `req.body` or `req.query` after validation. Ids are validated as ObjectId strings, and query numbers are coerced and bounded (`limit` ≤ 100).
-7. **Responses:** `ok(res, status, data, page?)` → `{ data }` or `{ data, page: { nextCursor, limit } }`. Errors → `{ error: { code, message, details?, requestId } }` from `middleware/error.js`. Models are mapped to plain DTOs in the service (`id` string, never `_id`/`__v`, never `passwordHash`).
+3. **Every repository function takes `userId` as its first argument and puts it in the filter.** No `findById` without `userId`. This is the multi-tenant boundary and the top review item. The one exception is `user.repository.js`, because users are the tenant root and are looked up by their own id, email or Google id.
+4. **Multi-document writes** (instalment plan + N entries, archive checks, account deletion, Google account linking, signup) run through `withTransaction(fn)` from `utils/transaction.js`. The session is passed explicitly to repository calls (`{ session }`).
+5. **Server-built query operators must be wrapped in `mongoose.trusted()`**, for example `expiresAt: mongoose.trusted({ $gt: now })`. `sanitizeFilter` is on, so an unwrapped `{ $gt: … }` is neutralised and the query fails with a cast error (500). Never wrap anything that came from a request. Use `returnDocument: "after"` (not the deprecated `new: true`) in `findOneAndUpdate`.
+6. **Errors:** throw `new ApiError(status, code, message, details?)` from services. Codes live in `constants/error-codes.js` and are never renamed (clients branch on them). 404, not 403, when a record belongs to someone else. Express 5 forwards rejected async handlers to the error middleware, so no try/catch wrappers are needed in controllers.
+7. **Validation:** `validate({ params, query, body })` with Zod `.strict()` objects (unknown keys rejected). The parsed values are on **`req.validated.params|query|body`** (Express 5 makes `req.query` read-only). Never read raw `req.body` or `req.query` after validation. Ids are validated as ObjectId strings, and query numbers are coerced and bounded (`limit` ≤ 100).
+8. **Responses:** `ok(res, status, data, page?)` → `{ data }` or `{ data, page: { nextCursor, limit } }`. Errors → `{ error: { code, message, details?, requestId } }` from `middleware/error.js`. Models are mapped to plain DTOs in the service (`id` string, never `_id`/`__v`, never `passwordHash`).
 
 ## Domain rules (from docs/PROJECT.md §3 — enforced here, not in clients)
 
@@ -103,7 +105,7 @@ docs/                       PROJECT.md  design-spec.md  api/README.md  auth/goog
 - accounts and categories: `{ userId: 1, archivedAt: 1, sortOrder: 1 }`
 - sessions: `{ userId: 1 }`, `{ tokenHash: 1 }` unique, TTL on `expiresAt`
 - idempotency keys: `{ userId: 1, key: 1 }` unique, TTL 24 h
-- `autoIndex` is on outside production. In production, indexes are built by a deploy step (`npm run db:indexes`, planned), never at app start.
+- `autoIndex` is on outside production. In production, indexes are built by the deploy step `npm run db:indexes` (`scripts/sync-indexes.js`; add every new model to it), never at app start.
 
 ## Code style
 

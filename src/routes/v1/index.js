@@ -1,4 +1,8 @@
 import { Router } from "express";
+import { authRouter } from "./auth.route.js";
+import { meRouter } from "./me.route.js";
 
-// Resource routers (auth, accounts, categories, transactions and the rest) are mounted here as they are built.
 export const v1Router = Router();
+
+v1Router.use("/auth", authRouter);
+v1Router.use("/me", meRouter);

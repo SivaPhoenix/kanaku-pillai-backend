@@ -4,7 +4,7 @@ REST API for **Kanaku Pillai** (கணக்குப் பிள்ளை, "th
 
 **Stack:** Node.js 22 · JavaScript (ES modules) · Express 5 · MongoDB Atlas (Mongoose 9) · Zod · pino · Vitest
 
-**Status:** foundation in place (config, logging, error handling, health checks, CI). Auth with Google sign-in is next.
+**Status:** foundation and auth are built: email/password sign-up and sign-in, Google sign-in, rotating refresh tokens, sign-out, rate limits and `GET /api/v1/me`. Accounts, categories and transactions are next.
 
 ## Getting started
 

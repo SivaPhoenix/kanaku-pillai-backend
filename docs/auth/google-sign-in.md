@@ -1,6 +1,6 @@
 # Google sign-in — plan
 
-**Status:** planned for phase 2 (Auth). Nothing here is built yet. Endpoint shapes are in `docs/api/README.md` → Auth.
+**Status:** backend built (`POST /api/v1/auth/google`, tested with a stubbed verifier). It goes live once `GOOGLE_CLIENT_IDS` is set (section 3). Not built yet: the web and app buttons, unlink, and Google re-auth for account deletion. Endpoint shapes are in `docs/api/README.md` → Auth.
 
 ## 1. Goal
 
@@ -26,13 +26,38 @@ Client (web / iOS / Android)                 Backend                          Go
 
 ## 3. Google Cloud setup (product owner, one time)
 
-1. Create a Google Cloud project, "Kanaku Pillai".
-2. **OAuth consent screen:** External; app name, support email, logo (once chosen), privacy policy and terms URLs. Scopes: `openid`, `email`, `profile` only. These are non-sensitive scopes, so no Google verification review is needed.
-3. **Create OAuth client IDs:**
-   - **Web application:** authorised JavaScript origins `http://localhost:5173` plus the production web origin. The mobile app also uses this ID as its `webClientId`, which makes Google issue ID tokens the backend can verify.
-   - **iOS:** bundle ID of the Expo app (for example `com.kanakupillai.app`).
-   - **Android:** package name plus the **SHA-1 of the signing certificate** from EAS (`eas credentials`). Add one for the debug/dev-client keystore and one for the production keystore (or the Play App Signing SHA-1).
-4. Put every client ID into the backend's `GOOGLE_CLIENT_IDS` env (comma-separated). These IDs are not secrets, but they live in env per environment.
+Do these at [console.cloud.google.com](https://console.cloud.google.com), signed in with the Google account that should own the app. The console menu names below are the current "Google Auth Platform" ones.
+
+### 3.1 Now (needed to test web sign-in)
+
+1. **Create the project.** Use the project picker (top bar), then **New project**. Name it `Kanaku Pillai`, then **Create**, and make sure it is the selected project.
+2. **Start Google Auth Platform.** From the menu, open **APIs & Services → OAuth consent screen** (this opens **Google Auth Platform**), then **Get started**:
+   - **App information:** app name `Kanaku Pillai`, user support email (your Gmail).
+   - **Audience:** **External** (anyone with a Google account).
+   - **Contact information:** your email.
+   - Agree to the user data policy, then **Create**.
+3. **Data access (scopes).** Nothing to add. Google Sign-In uses only `openid`, `email` and `profile`, which are non-sensitive, so no verification review is needed.
+4. **Audience → Test users.** While the app is in **Testing**, only listed test users can sign in. Add your own Gmail (and anyone else who will test), up to 100.
+5. **Clients → Create client** (OAuth client ID):
+   - **Application type:** Web application. **Name:** `Kanaku Pillai Web`.
+   - **Authorized JavaScript origins:** add both `http://localhost` and `http://localhost:5173`. Google's sign-in button needs both for local development. Add the production web origin later.
+   - **Authorized redirect URIs:** leave empty. The ID-token button flow does not redirect.
+   - **Create.** Copy the **Client ID** (`…apps.googleusercontent.com`).
+6. **Hand over the Client ID.** Put it in the backend `.env` as `GOOGLE_CLIENT_IDS=<client id>` (or send it to the developer). The client ID is public and not secret.
+   - **Do not share the client secret**, and do not put it anywhere in this project. The backend does not use it.
+
+### 3.2 Later (when the mobile app exists)
+
+7. **Android client:** **Clients → Create client → Android**. Enter the package name (for example `com.kanakupillai.app`) and the **SHA-1 certificate fingerprint**.
+   - Get the SHA-1 from `eas credentials` (or the Play Console → App signing).
+   - Create one client for the development keystore and one for the release/Play signing key.
+8. **iOS client:** **Clients → Create client → iOS**, with the bundle ID (for example `com.kanakupillai.app`).
+9. Add the Android and iOS client IDs to `GOOGLE_CLIENT_IDS` (comma-separated). The app also needs the **Web** client ID as its `webClientId`, so that Google issues ID tokens the backend accepts.
+
+### 3.3 Before public launch
+
+10. **Branding:** add the app logo (once chosen), home page, privacy policy and terms of service URLs, and the authorised domain of the production site. Adding a logo triggers Google's brand verification, which takes a few days.
+11. **Audience → Publish app**, moving it from Testing to In production, so any Google user can sign in. Basic scopes need no further review.
 
 ## 4. Account resolution rules (backend)
 
@@ -92,6 +117,6 @@ Stub the verifier, then cover: new user created with `isNewUser: true` and setup
 
 ## 10. Decisions needed from the product owner
 
-1. **Keep email and password, or Google only?** The spec includes both. Google-only removes the forgot-password OTP flow and the need for an email provider (PROJECT.md open question 3), but excludes users without a Google account.
+1. ~~Keep email and password, or Google only?~~ **Decided (13 Nov 2026):** Google sign-in plus email/password sign-up and sign-in for now. Forgot password, change password and email verification come later with an email provider.
 2. **Sign in with Apple:** App Store Review Guideline 4.8 requires an iOS app that offers a third-party login such as Google to also offer an equivalent privacy-focused option, which in practice means Sign in with Apple. Plan to add it to the iOS app (and the backend, same ID-token pattern) before the first App Store submission, unless the app is Google-free on iOS.
 3. **Google Cloud project ownership:** create it under the product owner's account, and confirm the bundle ID and package name for the app.

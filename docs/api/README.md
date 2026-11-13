@@ -1,6 +1,6 @@
 # Kanaku Pillai API — Contract (v1)
 
-Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kanaku-pillai-app`) clients build against this document. **Status: planned.** Endpoints move to "built" as they ship. Any change to a shape here is a contract change: update this file in the same PR and list the client impact.
+Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kanaku-pillai-app`) clients build against this document. **Status:** auth (signup, login, Google, refresh, logout) and `GET /me` are built. Everything else is planned, and endpoints are marked as they ship. Any change to a shape here is a contract change: update this file in the same PR and list the client impact.
 
 ## Conventions
 
@@ -19,6 +19,7 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 | ------ | -------------------------------------------------------------------------------------------------------------- |
 | 400    | `VALIDATION_ERROR`, `TRANSFER_SAME_ACCOUNT`, `CATEGORY_KIND_MISMATCH`, `INSTALMENT_NOT_CREDIT_CARD`            |
 | 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED` |
+| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                   |
 | 413    | `PAYLOAD_TOO_LARGE`                                                                                            |
 | 400    | also `INVALID_JSON` (malformed request body)                                                                   |
 | 404    | `NOT_FOUND` (also returned for records owned by another user)                                                  |
@@ -30,27 +31,64 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 
 ### Auth — `/auth`
 
-| Method | Path                    | Body → Response                                                                      |
-| ------ | ----------------------- | ------------------------------------------------------------------------------------ |
-| POST   | `/auth/signup`          | `{ name, email, password }` → `{ user, accessToken, refreshToken? }`                 |
-| POST   | `/auth/login`           | `{ email, password, keepSignedIn? }` → same as signup                                |
-| POST   | `/auth/google`          | `{ idToken }` → `{ user, accessToken, refreshToken?, isNewUser }` (see below)        |
-| POST   | `/auth/refresh`         | web: cookie, native: `{ refreshToken }` → `{ accessToken, refreshToken? }` (rotated) |
-| POST   | `/auth/logout`          | → 204 (revokes the current session)                                                  |
-| POST   | `/auth/forgot/request`  | `{ email }` → 202 (always, whether or not the email exists)                          |
-| POST   | `/auth/forgot/verify`   | `{ email, code }` → `{ resetToken }` (short-lived, single use)                       |
-| POST   | `/auth/forgot/reset`    | `{ resetToken, password }` → 204 (revokes every session)                             |
-| POST   | `/auth/change-password` | `{ currentPassword, newPassword }` → 204 (revokes the other sessions)                |
+| Method | Path                    | Body → Response                                                                                                                          | Status                         |
+| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| POST   | `/auth/signup`          | `{ name, email, password }` → session response, `isNewUser: true`                                                                        | 201 · built                    |
+| POST   | `/auth/login`           | `{ email, password, keepSignedIn? = true }` → session response                                                                           | 200 · built                    |
+| POST   | `/auth/google`          | `{ idToken }` → session response + `isNewUser`                                                                                           | 201 new, 200 returning · built |
+| POST   | `/auth/refresh`         | web: cookie only · native: `{ refreshToken }` → `{ accessToken, accessTokenExpiresIn, refreshToken?, refreshTokenExpiresAt? }` (rotated) | 200 · built                    |
+| POST   | `/auth/logout`          | web: cookie only · native: `{ refreshToken }` → no body (ends that session)                                                              | 204 · built                    |
+| POST   | `/auth/forgot/request`  | `{ email }` → 202 (always, whether or not the email exists)                                                                              | later (needs email provider)   |
+| POST   | `/auth/forgot/verify`   | `{ email, code }` → `{ resetToken }` (short-lived, single use)                                                                           | later                          |
+| POST   | `/auth/forgot/reset`    | `{ resetToken, password }` → 204 (revokes every session)                                                                                 | later                          |
+| POST   | `/auth/change-password` | `{ currentPassword, newPassword }` → 204 (revokes the other sessions)                                                                    | later                          |
 
-`refreshToken` appears in bodies only for native clients. Web receives it as an `httpOnly` cookie.
+**Session response** (signup, login, google):
 
-**Google sign-in:** `idToken` is the Google ID token from Google Identity Services (web) or `@react-native-google-signin` (app). The server verifies it and finds the account by Google id, links it by verified email, or creates it. `isNewUser: true` means the client goes to `/setup`. Errors: 401 `GOOGLE_TOKEN_INVALID`, 401 `GOOGLE_EMAIL_NOT_VERIFIED`. The full design is in `docs/auth/google-sign-in.md`.
+```json
+{
+  "data": {
+    "user": {
+      "id": "6650f1c2a1b2c3d4e5f60718",
+      "name": "Siva",
+      "email": "siva@example.com",
+      "avatarUrl": null,
+      "emailVerified": false,
+      "authMethods": ["password"],
+      "settings": {
+        "currencyCode": "INR",
+        "locale": "en-IN",
+        "tzMode": "device",
+        "tzid": "Asia/Kolkata",
+        "theme": "system",
+        "weekStart": "mon"
+      },
+      "setupComplete": false,
+      "createdAt": "2026-11-13T06:00:00.000Z"
+    },
+    "accessToken": "eyJhbGciOiJIUzI1NiIs…",
+    "accessTokenExpiresIn": 900,
+    "refreshToken": "(native clients only)",
+    "refreshTokenExpiresAt": "(native clients only, ISO instant)",
+    "isNewUser": true
+  }
+}
+```
+
+- **Password rules** (signup): 8–128 characters with at least one number and one symbol. Email is trimmed and lowercased. Name is 1–80 characters.
+- **Access token:** a JWT sent as `Authorization: Bearer …`, valid for `accessTokenExpiresIn` seconds (15 minutes). On 401 `TOKEN_EXPIRED`, call `/auth/refresh` once and retry. Signing out ends the session immediately, even for unexpired access tokens.
+- **Refresh token:** rotates on every `/auth/refresh`, so always store the new one. Presenting an old (already rotated) token is treated as theft and **ends the whole session** (401). Clients must therefore serialise refreshes: one in flight at a time, and on the web one across all tabs (for example with `navigator.locks`).
+- **Web:** the refresh token lives in the `kp_refresh` cookie (`httpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`). Call the API on the web app's own origin (`/api/v1/…` via the Vite proxy or a reverse proxy), otherwise the cookie is not sent. With `keepSignedIn: false` it is a browser-session cookie and the session ends after 1 day without use. Otherwise it lasts 30 days, renewed on each refresh.
+- **Native:** send `X-Client-Platform: ios` or `android`, and the refresh token comes back in the body. Keep it in secure storage. Sessions last 30 days, renewed on each refresh.
+- **Errors:** signup 409 `EMAIL_TAKEN`. Login 401 `INVALID_CREDENTIALS`, the same for an unknown email, a wrong password or a Google-only account. Refresh and logout 401 `UNAUTHENTICATED`. Rate limits return 429 `RATE_LIMITED`: signup 10 per hour per IP, login 10 per 15 minutes per IP and email, google 20 per 15 minutes, refresh 60 per 15 minutes.
+- **Google sign-in:** `idToken` is the Google ID token from Google Identity Services (web) or `@react-native-google-signin` (app). The server verifies it, then finds the account by Google id, links it by email, or creates it. `isNewUser: true` means the client goes to `/setup`. Errors: 401 `GOOGLE_TOKEN_INVALID`, 401 `GOOGLE_EMAIL_NOT_VERIFIED`, and 503 `GOOGLE_SIGN_IN_UNAVAILABLE` when the server has no Google client IDs configured. Linking rules are in `docs/auth/google-sign-in.md` §4.
+- **Password accounts are unverified** until email verification exists. A later Google sign-in with the same email therefore replaces that password and ends its sessions (this blocks someone pre-registering your email).
 
 ### Me and settings — `/me`
 
 | Method | Path               | Notes                                                                                                         |
 | ------ | ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| GET    | `/me`              | `{ id, name, email, settings, setupComplete, createdAt }`                                                     |
+| GET    | `/me`              | **Built.** The `user` object from the session response                                                        |
 | PATCH  | `/me`              | `{ name? }`                                                                                                   |
 | PATCH  | `/me/settings`     | `{ currencyCode?, tzMode?, tzid?, theme?, weekStart? }`. A currency change relabels and never converts        |
 | POST   | `/me/setup`        | `{ currencyCode, tzid, startingBalances?, starterCategories? }` → marks setup complete and seeds the defaults |
