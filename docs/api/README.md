@@ -1,6 +1,6 @@
 # Kanaku Pillai API — Contract (v1)
 
-Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kanaku-pillai-app`) clients build against this document. **Status:** auth (signup, login, Google, refresh, logout) and `GET /me` are built. Everything else is planned, and endpoints are marked as they ship. Any change to a shape here is a contract change: update this file in the same PR and list the client impact.
+Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kanaku-pillai-app`) clients build against this document. **Status:** auth and `GET /me` are built. Everything else in this document is the agreed v1 design, being built on the `feat/ledger-api` branch. Any change to a shape here is a contract change: update this file in the same PR and list the client impact.
 
 ## Conventions
 
@@ -8,24 +8,24 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 - **Auth:** `Authorization: Bearer <accessToken>` on every route except `/auth/*` (signup, login, google, refresh, forgot-*) and the health checks.
 - **Client platform:** clients send `X-Client-Platform: web | ios | android`. The value decides how the refresh token is delivered and is stored as `createdOn` on transactions.
 - **Request id:** the server returns `X-Request-Id`, and a client-supplied one is accepted if it is a valid UUID. Error bodies repeat it.
-- **Idempotency:** `POST /transactions`, `POST /transfers`-style creates and `POST /favourites/:id/apply` accept `Idempotency-Key: <uuid>`. Repeating the same key within 24 h returns the original response.
+- **Idempotency:** `POST /transactions` and `POST /transactions/:id/duplicate` accept `Idempotency-Key: <uuid>`. Repeating the same key and body within 24 h returns the original response.
 - **Ids:** opaque strings (`id`). Never send `_id`.
 - **Money:** `amountMinor` is an integer in the user's currency minor unit, always > 0, with sign implied by `type`. Clients format it, and they never send or receive floats.
 - **Time:** `occurredAt` is an ISO-8601 UTC instant and `tzid` is an IANA zone. The server derives `localDate` (`YYYY-MM-DD`) and returns it read-only.
 - **Success:** `{ "data": … }`. Lists: `{ "data": [ … ], "page": { "nextCursor": "…" | null, "limit": 50 } }`. Pass `?cursor=` to continue, `limit` ≤ 100.
 - **Errors:** `{ "error": { "code": "VALIDATION_ERROR", "message": "…", "details": [{ "field": "amountMinor", "message": "…" }], "requestId": "…" } }`.
 
-| Status | Codes                                                                                                          |
-| ------ | -------------------------------------------------------------------------------------------------------------- |
-| 400    | `VALIDATION_ERROR`, `TRANSFER_SAME_ACCOUNT`, `CATEGORY_KIND_MISMATCH`, `INSTALMENT_NOT_CREDIT_CARD`            |
-| 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED` |
-| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                   |
-| 413    | `PAYLOAD_TOO_LARGE`                                                                                            |
-| 400    | also `INVALID_JSON` (malformed request body)                                                                   |
-| 404    | `NOT_FOUND` (also returned for records owned by another user)                                                  |
-| 409    | `CONFLICT`, `EMAIL_TAKEN`, `ACCOUNT_ARCHIVED`, `IN_USE` (delete blocked: archive instead)                      |
-| 429    | `RATE_LIMITED` (with `Retry-After`)                                                                            |
-| 500    | `INTERNAL` (no details, no stack)                                                                              |
+| Status | Codes                                                                                                                                                                                                  |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 400    | `VALIDATION_ERROR`, transaction rule codes (see Shared shapes), `INSTALMENTS_NOT_ALLOWED`, `REPEAT_WITH_INSTALMENTS`                                                                                   |
+| 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`                                                                                         |
+| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                                                                                                           |
+| 413    | `PAYLOAD_TOO_LARGE`                                                                                                                                                                                    |
+| 400    | also `INVALID_JSON` (malformed request body)                                                                                                                                                           |
+| 404    | `NOT_FOUND` (also returned for records owned by another user)                                                                                                                                          |
+| 409    | `CONFLICT`, `EMAIL_TAKEN`, `NAME_TAKEN`, `ACCOUNT_ARCHIVED`, `CATEGORY_ARCHIVED`, `IN_USE` (archive instead), `TYPE_LOCKED`, `SETUP_ALREADY_DONE`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_IN_PROGRESS` |
+| 429    | `RATE_LIMITED` (with `Retry-After`)                                                                                                                                                                    |
+| 500    | `INTERNAL` (no details, no stack)                                                                                                                                                                      |
 
 ## Resources
 
@@ -84,68 +84,267 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 - **Google sign-in:** `idToken` is the Google ID token from Google Identity Services (web) or `@react-native-google-signin` (app). The server verifies it, then finds the account by Google id, links it by email, or creates it. `isNewUser: true` means the client goes to `/setup`. Errors: 401 `GOOGLE_TOKEN_INVALID`, 401 `GOOGLE_EMAIL_NOT_VERIFIED`, and 503 `GOOGLE_SIGN_IN_UNAVAILABLE` when the server has no Google client IDs configured. Linking rules are in `docs/auth/google-sign-in.md` §4.
 - **Password accounts are unverified** until email verification exists. A later Google sign-in with the same email therefore replaces that password and ends its sessions (this blocks someone pre-registering your email).
 
+### Shared shapes and rules
+
+These apply to every resource below.
+
+- **Ids** are 24-character hex strings. Any id in a path or body that is malformed returns 400. An id that is well-formed but not one of **your** records returns 404 `NOT_FOUND`, never 403.
+- **`localDate`** is `YYYY-MM-DD` and **`month`** is `YYYY-MM`, always in the user's calendar (the zone the entry was recorded in).
+- **`icon`** is one of the icon names below. Emoji are rejected (product rule: the UI never shows emoji):
+  `food coffee snacks fruits bus bag bolt home household medicine haircut gadgets education film salary laptop gift refund interest other wallet bank cash card trend`
+- **`color`** is one of `c1` … `c7` (design spec §2.1 palette).
+- **Money** fields end in `Minor`: integers in the user's currency minor unit, as safe integers. `amountMinor` is always > 0. Opening balances may be 0, and only bank, cash and investment balances may be negative.
+- **Archived** accounts and categories still appear in history and lists (`includeArchived=true`), but cannot be used for new or edited entries (409 `ACCOUNT_ARCHIVED` / `CATEGORY_ARCHIVED`).
+- **Transfers** never count in income, expense or stats totals.
+
+#### Transaction rules (create, edit, favourites, repeat templates)
+
+| Type       | `categoryId`                                | `accountId`                 | `toAccountId`                             |
+| ---------- | ------------------------------------------- | --------------------------- | ----------------------------------------- |
+| `expense`  | required, a category with `kind: "expense"` | required (any account type) | must be absent                            |
+| `income`   | required, a category with `kind: "income"`  | required (any account type) | must be absent                            |
+| `transfer` | must be absent                              | required, not a debit card  | required, not a debit card, ≠ `accountId` |
+
+Rule errors (400): `CATEGORY_REQUIRED`, `CATEGORY_NOT_ALLOWED`, `CATEGORY_KIND_MISMATCH`, `TRANSFER_TARGET_REQUIRED`, `TRANSFER_TARGET_NOT_ALLOWED`, `TRANSFER_SAME_ACCOUNT`, `DEBIT_CARD_TRANSFER`.
+
 ### Me and settings — `/me`
 
-| Method | Path               | Notes                                                                                                         |
-| ------ | ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| GET    | `/me`              | **Built.** The `user` object from the session response                                                        |
-| PATCH  | `/me`              | `{ name? }`                                                                                                   |
-| PATCH  | `/me/settings`     | `{ currencyCode?, tzMode?, tzid?, theme?, weekStart? }`. A currency change relabels and never converts        |
-| POST   | `/me/setup`        | `{ currencyCode, tzid, startingBalances?, starterCategories? }` → marks setup complete and seeds the defaults |
-| GET    | `/me/sessions`     | Signed-in devices `{ id, platform, userAgent, lastUsedAt, current }`                                          |
-| DELETE | `/me/sessions/:id` | Sign out one device                                                                                           |
-| DELETE | `/me`              | `{ confirm: "DELETE" , password? }` → 202. Sessions are revoked now, and the data is purged by a job          |
+| Method | Path               | Body → Response                                                                                          | Status |
+| ------ | ------------------ | -------------------------------------------------------------------------------------------------------- | ------ |
+| GET    | `/me`              | → `user` (as in the session response)                                                                    | built  |
+| PATCH  | `/me`              | `{ name }` (1–80) → `user`                                                                               |        |
+| PATCH  | `/me/settings`     | `{ currencyCode?, locale?, tzMode?, tzid?, theme?, weekStart? }` → `{ user, relabeledCount }`            |        |
+| POST   | `/me/setup`        | see below → `{ user, accounts, categories }`                                                             | 201    |
+| GET    | `/me/sessions`     | → `[{ id, platform, userAgent, ipAddress, createdAt, lastUsedAt, current }]` (active only, newest first) |        |
+| DELETE | `/me/sessions/:id` | → 204. Signs that device out (works for the current one too)                                             |        |
+| DELETE | `/me`              | `{ confirm: "DELETE", password? }` → 204                                                                 |        |
+
+- **Settings:** `currencyCode` must be an ISO 4217 code the runtime knows (`Intl.supportedValuesOf("currency")`). Changing it **relabels** every existing entry to the new code and **never converts** amounts. `relabeledCount` says how many. `locale` defaults from the currency (INR→en-IN, USD→en-US, EUR→de-DE, GBP→en-GB, AED→en-AE, SGD→en-SG, JPY→ja-JP, otherwise en-US) unless sent explicitly. `tzid` must be a valid IANA zone, `tzMode` is `device` or `manual`, `theme` is `system`, `light` or `dark`, and `weekStart` is `mon` or `sun`.
+- **Setup** (once, after first sign-in; 409 `SETUP_ALREADY_DONE` afterwards):
+
+  ```json
+  {
+    "currencyCode": "INR",
+    "tzid": "Asia/Kolkata",
+    "startingBalances": {
+      "savingsMinor": 15260000,
+      "walletMinor": 630000,
+      "creditCardOwedMinor": 1245000
+    },
+    "starterCategories": true
+  }
+  ```
+
+  It creates the default accounts **Savings** (bank, default), **Wallet** (cash), **Credit card** and **Debit card** (linked to Savings), with the optional opening balances. With `starterCategories` (default `true`) it also creates the expense categories Food, Coffee, Snacks, Fruits, Transport, Rent, Electricity, Household, Medicine, Haircut, Gadgets and Education, and the income categories Salary, Freelance, Interest, Refund, Gift and Other. Then it sets `setupComplete: true`.
+
+- **Delete account:** `password` is required when the account has one. Google-only accounts confirm with `confirm` alone. All the user's data (transactions, accounts, categories, favourites, repeat rules, instalment plans, sessions) is deleted at once and permanently. 401 `INVALID_CREDENTIALS` if the password is wrong.
 
 ### Accounts — `/accounts`
 
-| Method | Path                                     | Notes                                                                                                           |
-| ------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| GET    | `/accounts?includeArchived=false`        | Each with computed `balanceMinor` (credit card: `owedMinor`, plus `limitUsedPct`, `statementMinor`, `dueDate`)  |
-| GET    | `/accounts/summary`                      | `{ netWorthMinor, assetsMinor, liabilitiesMinor }`                                                              |
-| POST   | `/accounts`                              | `{ name, type, icon, color, openingBalanceMinor, linkedAccountId?, creditLimitMinor?, statementDay?, dueDay? }` |
-| GET    | `/accounts/:id`                          | `?month=YYYY-MM` adds `{ inMinor, outMinor, recent[] }`                                                         |
-| PATCH  | `/accounts/:id`                          | Same fields (type is immutable once transactions exist)                                                         |
-| POST   | `/accounts/:id/archive` and `/unarchive` |                                                                                                                 |
-| DELETE | `/accounts/:id`                          | 409 `IN_USE` if any transaction references it                                                                   |
-| PUT    | `/accounts/order`                        | `{ ids: [] }` → sets `sortOrder`                                                                                |
+```json
+{
+  "id": "…",
+  "name": "Savings",
+  "type": "bank",
+  "icon": "bank",
+  "color": "c2",
+  "last4": "4821",
+  "openingBalanceMinor": 0,
+  "linkedAccountId": null,
+  "creditLimitMinor": null,
+  "statementDay": null,
+  "dueDay": null,
+  "isDefault": true,
+  "sortOrder": 0,
+  "archived": false,
+  "balanceMinor": 15260000,
+  "createdAt": "…"
+}
+```
+
+- `type` is `bank`, `cash`, `credit_card`, `debit_card` or `investment`. `last4` (optional, 4 digits) is for display ("••4821").
+- **`balanceMinor`** (computed): for bank, cash and investment = opening + income − expense + transfers in − transfers out. A debit card's income and expense count towards its **linked bank account**, and the debit card itself reports `balanceMinor: null`.
+- **Credit cards** report `owedMinor` instead of `balanceMinor`: opening owed + expenses − income (refunds) − transfers in (bill payments) + transfers out. They also include `limitUsedPct` (one decimal, null without a limit), `statementMinor` (amount owed at the close of the last statement day), `lastStatementDate` and `dueDate` (both `localDate`, null when the days aren't set).
+- `debit_card` requires `linkedAccountId` (a bank account of yours). `creditLimitMinor`, `statementDay` and `dueDay` (1–28) apply only to `credit_card`. `name` is 1–40 characters and unique among your non-archived accounts (409 `NAME_TAKEN`).
+
+| Method | Path                                   | Body → Response                                                                                                                      | Notes                                                                                     |
+| ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| GET    | `/accounts?includeArchived=false`      | → `[account]`                                                                                                                        | sorted by `sortOrder`                                                                     |
+| GET    | `/accounts/summary`                    | → `{ netWorthMinor, assetsMinor, liabilitiesMinor }`                                                                                 | net worth = assets − credit-card owed                                                     |
+| POST   | `/accounts`                            | `{ name, type, icon, color, last4?, openingBalanceMinor?, linkedAccountId?, creditLimitMinor?, statementDay?, dueDay? }` → `account` | 201                                                                                       |
+| GET    | `/accounts/:id?month=YYYY-MM`          | → `account` + `activity: { month, inMinor, outMinor, recent: [transaction ×10] }`                                                    | `month` defaults to the current one                                                       |
+| PATCH  | `/accounts/:id`                        | any create field → `account`                                                                                                         | `type` can't change once entries exist (409 `TYPE_LOCKED`)                                |
+| POST   | `/accounts/:id/archive` · `/unarchive` | → `account`                                                                                                                          | archiving the default account clears `isDefault`                                          |
+| POST   | `/accounts/:id/default`                | → `account`                                                                                                                          | makes it the default; the previous default is cleared                                     |
+| DELETE | `/accounts/:id`                        | → 204                                                                                                                                | 409 `IN_USE` if any entry, favourite, repeat rule or debit card uses it (archive instead) |
+| PUT    | `/accounts/order`                      | `{ ids: [id…] }` → `[account]`                                                                                                       | `sortOrder` follows the array order                                                       |
 
 ### Categories — `/categories`
 
-Same pattern as accounts, plus `kind: 'expense' | 'income'` on create (immutable). `GET /categories?kind=expense&includeArchived=false` returns `usageThisMonth` per item. `PUT /categories/order` takes `{ kind, ids }`.
+```json
+{
+  "id": "…",
+  "kind": "expense",
+  "name": "Food",
+  "icon": "food",
+  "color": "c1",
+  "sortOrder": 0,
+  "archived": false,
+  "usageThisMonth": 42,
+  "createdAt": "…"
+}
+```
+
+| Method | Path                                             | Body → Response                            | Notes                                                             |
+| ------ | ------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------- |
+| GET    | `/categories?kind=expense&includeArchived=false` | → `[category]`                             | `kind` optional; `usageThisMonth` = entries in the current month  |
+| POST   | `/categories`                                    | `{ kind, name, icon, color }` → `category` | 201; `kind` is immutable; name unique per kind (409 `NAME_TAKEN`) |
+| PATCH  | `/categories/:id`                                | `{ name?, icon?, color? }` → `category`    |                                                                   |
+| POST   | `/categories/:id/archive` · `/unarchive`         | → `category`                               |                                                                   |
+| DELETE | `/categories/:id`                                | → 204                                      | 409 `IN_USE` if any entry, favourite or repeat rule uses it       |
+| PUT    | `/categories/order`                              | `{ kind, ids: [id…] }` → `[category]`      |                                                                   |
 
 ### Transactions — `/transactions`
 
-| Method | Path                           | Notes                                                                                                                                                                    |
-| ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/transactions`                | Filters: `from`, `to` (localDate), `type`, `accountId`, `categoryId`, `q` (note/category/account, numeric matches amount), `min`, `max`, `cursor`, `limit`. Newest first |
-| GET    | `/transactions/day/:localDate` | `{ inMinor, outMinor, count, items[] }`                                                                                                                                  |
-| POST   | `/transactions`                | `{ type, amountMinor, categoryId?, accountId, toAccountId?, occurredAt, tzid, note?, repeat?, instalments? }`                                                            |
-| GET    | `/transactions/:id`            | Includes `createdAt`, `updatedAt`, `createdOn`                                                                                                                           |
-| PATCH  | `/transactions/:id`            | Partial. Domain rules re-validated on the merged result                                                                                                                  |
-| DELETE | `/transactions/:id`            | Soft delete → `{ undoUntil }`                                                                                                                                            |
-| POST   | `/transactions/:id/restore`    | Undo within the window                                                                                                                                                   |
-| POST   | `/transactions/:id/duplicate`  | New entry dated now                                                                                                                                                      |
-| GET    | `/transactions/export.csv`     | Same filters as the list (web desktop)                                                                                                                                   |
+```json
+{
+  "id": "…",
+  "type": "expense",
+  "amountMinor": 24000,
+  "currencyCode": "INR",
+  "categoryId": "…",
+  "accountId": "…",
+  "toAccountId": null,
+  "occurredAt": "2026-10-22T07:50:00.000Z",
+  "tzid": "Asia/Kolkata",
+  "localDate": "2026-10-22",
+  "note": "Lunch",
+  "recurrenceId": null,
+  "installmentPlanId": null,
+  "installmentIndex": null,
+  "installmentCount": null,
+  "createdOn": "web",
+  "createdAt": "…",
+  "updatedAt": "…"
+}
+```
 
-`repeat`: `{ freq: 'daily'|'weekly'|'monthly'|'yearly'|'custom', interval, byDay?, endsOn? }` creates a recurrence rule. `instalments`: `{ months: 3|6|9|12 }` is allowed only when `accountId` is a credit card, and creates a plan plus N monthly entries.
+Clients show category and account names by joining with the (small, cached) `/categories` and `/accounts` lists.
+
+| Method | Path                           | Body → Response                                                                                             | Notes                                                                                    |
+| ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/transactions`                | filters below → list, newest first (`occurredAt` desc)                                                      | cursor paging, `limit` ≤ 100 (default 50)                                                |
+| GET    | `/transactions/summary`        | same filters → `{ count, incomeMinor, expenseMinor, netMinor }`                                             | net = income − expense (transfers excluded)                                              |
+| GET    | `/transactions/day/:localDate` | → `{ localDate, inMinor, outMinor, count, items: [transaction] }`                                           | up to 500 items                                                                          |
+| GET    | `/transactions/export.csv`     | same filters → `text/csv`                                                                                   | columns: Date, Time, Type, Amount, Currency, Category, Account, To account, Note         |
+| POST   | `/transactions`                | see below → `transaction`                                                                                   | 201; accepts `Idempotency-Key`                                                           |
+| GET    | `/transactions/:id`            | → `transaction`                                                                                             |                                                                                          |
+| PATCH  | `/transactions/:id`            | `{ type?, amountMinor?, categoryId?, accountId?, toAccountId?, occurredAt?, tzid?, note? }` → `transaction` | rules re-checked on the merged result; set `categoryId`/`toAccountId` to `null` to clear |
+| DELETE | `/transactions/:id`            | → `{ id, deletedAt, undoUntil }`                                                                            | soft delete; `undoUntil` = 10 s later (for the Undo toast)                               |
+| POST   | `/transactions/:id/restore`    | → `transaction`                                                                                             | works until the entry is purged (30 days)                                                |
+| POST   | `/transactions/:id/duplicate`  | `{ occurredAt?, tzid? }` → `transaction`                                                                    | 201; defaults to now in the original zone; accepts `Idempotency-Key`                     |
+
+**List filters** (all optional): `from` and `to` (`localDate`, inclusive), `type` (`income`, `expense` or `transfer`), `accountId` (matches the from or the to side), `categoryId`, `q` (case-insensitive match on note, category name or account name; a number also matches that exact amount, so "240" finds ₹240.00), `min` and `max` (`amountMinor`), `cursor` and `limit`.
+
+**Create body:**
+
+```json
+{
+  "type": "expense",
+  "amountMinor": 24000,
+  "categoryId": "…",
+  "accountId": "…",
+  "toAccountId": null,
+  "occurredAt": "2026-10-22T07:50:00.000Z",
+  "tzid": "Asia/Kolkata",
+  "note": "Lunch",
+  "repeat": { "freq": "monthly", "interval": 1, "endsOn": null },
+  "instalments": { "months": 6 }
+}
+```
+
+- `note` is up to 140 characters. `occurredAt` cannot be more than one year in the future.
+- **`repeat`** (optional; `freq` is `daily`, `weekly`, `monthly` or `yearly`, `interval` is 1–365, `endsOn` an optional `localDate`) creates a repeat rule from this entry. This entry is the first occurrence. Later ones are generated by the server on their dates, exactly once each, even when no device is online. The client's "Custom" option is any `interval` above 1.
+- **`instalments`** (optional; `months` is 3, 6, 9 or 12) applies only to an `expense` on a `credit_card` account (400 `INSTALMENTS_NOT_ALLOWED`). It creates an instalment plan and N monthly expense entries on the same day of the month (clamped to the month's end) at the same local time. The amounts are `floor(amount / N)`, with the remainder on the first entry, so they sum exactly. The response is the first entry.
+- `repeat` and `instalments` cannot be combined (400 `REPEAT_WITH_INSTALMENTS`).
+- **`Idempotency-Key`** (UUID): sending the same key and the same body again within 24 hours returns the original response with the original status. The same key with a different body returns 409 `IDEMPOTENCY_KEY_REUSED`. While the first request is still running, a repeat returns 409 `IDEMPOTENCY_IN_PROGRESS`.
 
 ### Stats — `/stats`
 
-| Method | Path                       | Notes                                                                                                                                       |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/stats/month/:yyyy-mm`    | `{ incomeMinor, expenseMinor, balanceMinor, byCategory[], byAccount[], dailySpend[] }`, transfers excluded                                  |
-| GET    | `/stats/period`            | `?period=week\|month\|year&ref=…&type=income\|expense` → `{ totalMinor, byCategory[{ categoryId, amountMinor, pct }], previousTotalMinor }` |
-| GET    | `/stats/trend`             | `?months=6\|12&type=expense\|income` → `[{ month, amountMinor }]`, plus `averageMinor`                                                      |
-| GET    | `/stats/calendar/:yyyy-mm` | Per day `{ localDate, expenseMinor, incomeMinor }` (heatmap)                                                                                |
+Every stat sums `income` and `expense` only. Transfers are always excluded, and so are deleted entries. Percentages have one decimal.
+
+| Method | Path                                                                         | Response                                                                                                                                                                                                      |
+| ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/stats/month/:month`                                                        | `{ month, currencyCode, incomeMinor, expenseMinor, balanceMinor, byCategory: [{ categoryId, amountMinor, pct }], byAccount: [{ accountId, amountMinor }], days: [{ localDate, expenseMinor, incomeMinor }] }` |
+| GET    | `/stats/period?period=week\|month\|year&ref=YYYY-MM-DD&type=expense\|income` | `{ period, type, from, to, previousFrom, previousTo, totalMinor, previousTotalMinor, byCategory: [{ categoryId, amountMinor, pct, previousAmountMinor }] }`                                                   |
+| GET    | `/stats/trend?months=6\|12&end=YYYY-MM&type=expense\|income`                 | `{ type, points: [{ month, amountMinor }], averageMinor }`                                                                                                                                                    |
+
+- `byCategory` (expense categories in the month view) is sorted by amount descending. `byAccount` is what each account spent (expenses, debit cards listed as themselves). `days` has one entry per day of the month (zeros included), which feeds both the daily bar chart and the calendar heatmap.
+- Weeks start on the user's `weekStart`. `ref` defaults to today in the user's zone, and `end` defaults to the current month.
 
 ### Favourites — `/favourites`
 
-CRUD plus `PUT /favourites/order`. Shape: `{ title, icon, type, amountMinor, categoryId?, accountId?, toAccountId?, note? }`.
+```json
+{
+  "id": "…",
+  "title": "Lunch",
+  "icon": "food",
+  "type": "expense",
+  "amountMinor": 24000,
+  "categoryId": "…",
+  "accountId": "…",
+  "toAccountId": null,
+  "note": "Lunch",
+  "sortOrder": 0,
+  "createdAt": "…"
+}
+```
 
-### Recurrences — `/recurrences`
+| Method | Path                | Body → Response                                                                                                                       |
+| ------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/favourites`       | → `[favourite]` (sorted)                                                                                                              |
+| POST   | `/favourites`       | `{ title (1–40), icon, type, amountMinor, categoryId?, accountId, toAccountId?, note? }` → `favourite` (201, transaction rules apply) |
+| PATCH  | `/favourites/:id`   | any field → `favourite`                                                                                                               |
+| DELETE | `/favourites/:id`   | → 204                                                                                                                                 |
+| PUT    | `/favourites/order` | `{ ids }` → `[favourite]`                                                                                                             |
 
-`GET` (with `nextOccurrence`), `PATCH /:id`, `DELETE /:id` (stops future generation and keeps past entries).
+Applying a favourite is done by the client: it fills the Add form, and then a normal `POST /transactions` happens.
+
+### Repeat rules — `/recurrences`
+
+```json
+{
+  "id": "…",
+  "type": "expense",
+  "amountMinor": 600000,
+  "categoryId": null,
+  "accountId": "…",
+  "toAccountId": "…",
+  "note": "Monthly SIP",
+  "tzid": "Asia/Kolkata",
+  "localTime": "09:00",
+  "freq": "monthly",
+  "interval": 1,
+  "startsOn": "2026-10-05",
+  "endsOn": null,
+  "nextOccurrence": "2026-11-05",
+  "paused": false,
+  "createdAt": "…"
+}
+```
+
+| Method | Path               | Body → Response                                                                           |
+| ------ | ------------------ | ----------------------------------------------------------------------------------------- |
+| GET    | `/recurrences`     | → `[rule]` (active first, then by `nextOccurrence`)                                       |
+| PATCH  | `/recurrences/:id` | `{ amountMinor?, note?, endsOn?, paused? }` → `rule` (applies to future occurrences only) |
+| DELETE | `/recurrences/:id` | → 204. Stops future occurrences; past entries stay                                        |
 
 ### Health
 
 `GET /health` → `{ status: "ok" }` (process up). `GET /ready` → 200 when MongoDB is reachable, 503 otherwise.
+
+### Background jobs (worker process, `npm run worker`)
+
+- **Repeat generation** runs every 15 minutes. It creates every occurrence due up to today in each rule's zone, including any missed while the worker was down, then moves `nextOccurrence` forward. A unique `(recurrenceId, occurrenceDate)` index makes generation idempotent.
+- **Purge** runs daily and permanently deletes entries soft-deleted more than 30 days ago.
+- A MongoDB lock makes each job run on one worker at a time, even with several workers.
