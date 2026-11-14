@@ -6,6 +6,7 @@ const startingBalances = z
     savingsMinor: nonNegativeMinor.optional(),
     walletMinor: nonNegativeMinor.optional(),
     creditCardOwedMinor: nonNegativeMinor.optional(),
+    investmentsMinor: nonNegativeMinor.optional(),
   })
   .strict();
 

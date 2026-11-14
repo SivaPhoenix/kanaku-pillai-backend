@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { errorHandler } from "../../src/middleware/error.js";
 import { notFound } from "../../src/middleware/not-found.js";
 import { requestId } from "../../src/middleware/request-id.js";
+import { Account } from "../../src/models/account.model.js";
 import { Transaction } from "../../src/models/transaction.model.js";
 import { statsRouter } from "../../src/routes/v1/stats.route.js";
 import { instantAt } from "../../src/utils/time.js";
@@ -108,6 +109,9 @@ describe("GET /stats/month/:month", () => {
         "incomeMinor",
         "expenseMinor",
         "balanceMinor",
+        "investedMinor",
+        "withdrawnMinor",
+        "afterInvestingMinor",
         "byCategory",
         "byAccount",
         "days",
@@ -119,6 +123,9 @@ describe("GET /stats/month/:month", () => {
       incomeMinor: 500000,
       expenseMinor: 200000,
       balanceMinor: 300000,
+      investedMinor: 0,
+      withdrawnMinor: 0,
+      afterInvestingMinor: 300000,
     });
     expect(data.byCategory).toEqual([
       { categoryId: String(c.food._id), amountMinor: 150000, pct: 75 },
@@ -133,6 +140,56 @@ describe("GET /stats/month/:month", () => {
     expect(data.days[4]).toEqual({ localDate: "2026-10-05", expenseMinor: 150000, incomeMinor: 0 });
     expect(data.days[6]).toEqual({ localDate: "2026-10-07", expenseMinor: 0, incomeMinor: 0 });
     expect(JSON.stringify(data)).not.toMatch(/_id|__v|userId/);
+  });
+
+  it("reports money moved into and out of investment accounts without changing the balance", async () => {
+    const { userId, headers } = await createSignedInUser();
+    const ledger = await seedLedger(userId);
+    await seedMonth(userId, ledger);
+    const { accounts: a } = ledger;
+    const transfer = (amountMinor, from, to, extra = {}) =>
+      entry(userId, {
+        type: "transfer",
+        amountMinor,
+        localDate: "2026-10-10",
+        accountId: from._id,
+        toAccountId: to._id,
+        ...extra,
+      });
+    const second = await Account.create({
+      userId,
+      name: "Gold",
+      nameKey: "gold",
+      activeNameKey: "gold",
+      type: "investment",
+      icon: "trend",
+      color: "c4",
+      sortOrder: 9,
+      openingBalanceMinor: 0,
+      archivedAt: new Date(),
+    });
+
+    await transfer(700000, a.savings, a.stocks);
+    await transfer(50000, a.wallet, second);
+    await transfer(20000, a.stocks, a.savings);
+    // Between two investment accounts: neither invested nor withdrawn.
+    await transfer(30000, a.stocks, second);
+    await transfer(11111, a.savings, a.stocks, { deletedAt: new Date() });
+    await transfer(22222, a.savings, a.stocks, { localDate: "2026-11-01" });
+
+    const { data } = (await request(app).get("/stats/month/2026-10").set(headers)).body;
+    expect(data).toMatchObject({
+      incomeMinor: 500000,
+      expenseMinor: 200000,
+      balanceMinor: 300000,
+      investedMinor: 750000,
+      withdrawnMinor: 20000,
+      afterInvestingMinor: 300000 - 750000 + 20000,
+    });
+
+    const other = await createSignedInUser();
+    const theirs = (await request(app).get("/stats/month/2026-10").set(other.headers)).body.data;
+    expect(theirs).toMatchObject({ investedMinor: 0, withdrawnMinor: 0, afterInvestingMinor: 0 });
   });
 
   it("returns zero-filled days for an empty month and ignores other users' data", async () => {

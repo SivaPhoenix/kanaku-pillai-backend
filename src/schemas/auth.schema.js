@@ -38,3 +38,19 @@ export const refreshBody = z
     refreshToken: z.string().min(20).max(256).optional(),
   })
   .strict();
+
+// Email link tokens are 43 base64url characters; anything else simply fails the lookup and returns INVALID_LINK.
+const linkToken = z.string().trim().min(20).max(128);
+
+export const forgotPasswordBody = z.object({ email }).strict();
+
+export const linkTokenBody = z.object({ token: linkToken }).strict();
+
+export const resetPasswordBody = z.object({ token: linkToken, password: newPassword }).strict();
+
+export const changePasswordBody = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password").max(128),
+    newPassword,
+  })
+  .strict();

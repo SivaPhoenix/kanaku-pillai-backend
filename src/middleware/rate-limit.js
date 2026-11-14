@@ -67,6 +67,35 @@ export const authRateLimits = Object.freeze({
   login: createRateLimit({ name: "login", windowMs: 15 * MINUTE, limit: 10, keyBy: "ip+email" }),
   google: createRateLimit({ name: "google", windowMs: 15 * MINUTE, limit: 20 }),
   refresh: createRateLimit({ name: "refresh", windowMs: 15 * MINUTE, limit: 60 }),
+  forgotPassword: createRateLimit({
+    name: "forgot-password",
+    windowMs: 15 * MINUTE,
+    limit: 5,
+    keyBy: "ip+email",
+  }),
+  // Caps one IP looping over many addresses, which would otherwise burn the sender's daily quota for everyone.
+  forgotPasswordPerIp: createRateLimit({
+    name: "forgot-password-ip",
+    windowMs: 60 * MINUTE,
+    limit: 20,
+  }),
+  resetPassword: createRateLimit({ name: "reset-password", windowMs: 15 * MINUTE, limit: 20 }),
+  verifyEmail: createRateLimit({ name: "verify-email", windowMs: 15 * MINUTE, limit: 20 }),
+});
+
+export const resendVerificationRateLimit = createRateLimit({
+  name: "resend-verification",
+  windowMs: 15 * MINUTE,
+  limit: 5,
+  keyBy: "user",
+});
+
+// Caps guessing the current password from a stolen session.
+export const changePasswordRateLimit = createRateLimit({
+  name: "change-password",
+  windowMs: 15 * MINUTE,
+  limit: 5,
+  keyBy: "user",
 });
 
 // Per-user limits for authenticated routes (mount after requireAuth).

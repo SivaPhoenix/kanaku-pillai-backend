@@ -57,6 +57,37 @@ export function updateSettings(userId, changes, { session } = {}) {
   return User.findByIdAndUpdate(userId, { $set: set }, { returnDocument: "after", session }).lean();
 }
 
+// Only verifies the address the link was sent to; if the account email has changed since, nothing is updated.
+export function markEmailVerified(userId, email, { session, now = new Date() } = {}) {
+  return User.findOneAndUpdate(
+    { _id: userId, email },
+    { $set: { emailVerifiedAt: now } },
+    { returnDocument: "after", session },
+  ).lean();
+}
+
+// Plain password change: unlike a reset, it proves nothing about the inbox, so emailVerifiedAt is left alone.
+export function updatePasswordHash(userId, passwordHash, { session } = {}) {
+  return User.updateOne({ _id: userId }, { $set: { passwordHash } }, { session });
+}
+
+// A reset link proves the user controls the inbox, so it also verifies the email if it was not yet.
+export function setPassword(userId, passwordHash, { session, now = new Date() } = {}) {
+  return User.findOneAndUpdate(
+    { _id: userId },
+    // $literal: argon2 hashes start with "$", which a pipeline would otherwise read as a field path.
+    [
+      {
+        $set: {
+          passwordHash: { $literal: passwordHash },
+          emailVerifiedAt: { $ifNull: ["$emailVerifiedAt", now] },
+        },
+      },
+    ],
+    { returnDocument: "after", session, updatePipeline: true },
+  ).lean();
+}
+
 export function findByIdWithPassword(userId, { session } = {}) {
   return User.findById(userId)
     .select("+passwordHash")

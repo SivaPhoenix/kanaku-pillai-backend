@@ -20,22 +20,28 @@ const toCategoryRows = (rows, total) =>
 export async function getMonthStats(userId, month) {
   const { settings } = await userRepository.findById(userId);
   const range = monthRange(month);
-  const [totals, categories, accounts, daily] = await Promise.all([
+  const [totals, categories, accounts, daily, investments] = await Promise.all([
     statsRepository.totalsByType(userId, range),
     statsRepository.totalsByCategory(userId, { ...range, type: "expense" }),
     statsRepository.totalsByAccount(userId, { ...range, type: "expense" }),
     statsRepository.totalsByDay(userId, range),
+    statsRepository.investmentFlows(userId, range),
   ]);
 
   const perDay = new Map(daysOfMonth(month).map((d) => [d, { expenseMinor: 0, incomeMinor: 0 }]));
   for (const row of daily) perDay.get(row.localDate)[`${row.type}Minor`] = row.amountMinor;
 
+  const balanceMinor = totals.incomeMinor - totals.expenseMinor;
   return {
     month,
     currencyCode: settings.currencyCode,
     incomeMinor: totals.incomeMinor,
     expenseMinor: totals.expenseMinor,
-    balanceMinor: totals.incomeMinor - totals.expenseMinor,
+    balanceMinor,
+    // Investing is a transfer, so it never changes income, expense or balance; these show it alongside them.
+    investedMinor: investments.investedMinor,
+    withdrawnMinor: investments.withdrawnMinor,
+    afterInvestingMinor: balanceMinor - investments.investedMinor + investments.withdrawnMinor,
     byCategory: toCategoryRows(categories, totals.expenseMinor),
     byAccount: accounts.map((row) => ({ accountId: row.id, amountMinor: row.amountMinor })),
     days: [...perDay].map(([localDate, sums]) => ({ localDate, ...sums })),

@@ -5,7 +5,7 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 ## Conventions
 
 - **Base URL:** `/api/v1`, JSON only (`Content-Type: application/json`), UTF-8.
-- **Auth:** `Authorization: Bearer <accessToken>` on every route except `/auth/*` (signup, login, google, refresh, forgot-*) and the health checks.
+- **Auth:** `Authorization: Bearer <accessToken>` on every route except `/auth/*` (signup, login, google, refresh, verify-email, forgot-password, reset-password) and the health checks.
 - **Client platform:** clients send `X-Client-Platform: web | ios | android`. The value decides how the refresh token is delivered and is stored as `createdOn` on transactions.
 - **Request id:** the server returns `X-Request-Id`, and a client-supplied one is accepted if it is a valid UUID. Error bodies repeat it.
 - **Idempotency:** `POST /transactions` and `POST /transactions/:id/duplicate` accept `Idempotency-Key: <uuid>`. Repeating the same key and body within 24 h returns the original response.
@@ -17,33 +17,34 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 - **Limits:** each user can have at most 50 active accounts, 100 active categories per kind, 100 favourites and 100 active repeat rules. Creating (or unarchiving) past a cap returns 409 `LIMIT_REACHED`. Rate limits (429 `RATE_LIMITED`): `DELETE /me` 5 per 15 minutes per user, `GET /transactions/export.csv` 10 per 15 minutes per user, and every non-GET request outside `/auth` 300 per 5 minutes per user. The auth limits are listed under Auth.
 - **Errors:** `{ "error": { "code": "VALIDATION_ERROR", "message": "…", "details": [{ "field": "amountMinor", "message": "…" }], "requestId": "…" } }`.
 
-| Status | Codes                                                                                                                                                                                                                   |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `VALIDATION_ERROR`, transaction rule codes (see Shared shapes), `INSTALMENTS_NOT_ALLOWED`, `REPEAT_WITH_INSTALMENTS`                                                                                                    |
-| 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`                                                                                                          |
-| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                                                                                                                            |
-| 413    | `PAYLOAD_TOO_LARGE`                                                                                                                                                                                                     |
-| 400    | also `INVALID_JSON` (malformed request body)                                                                                                                                                                            |
-| 404    | `NOT_FOUND` (also returned for records owned by another user)                                                                                                                                                           |
-| 409    | `CONFLICT`, `EMAIL_TAKEN`, `NAME_TAKEN`, `LIMIT_REACHED`, `ACCOUNT_ARCHIVED`, `CATEGORY_ARCHIVED`, `IN_USE` (archive instead), `TYPE_LOCKED`, `SETUP_ALREADY_DONE`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_IN_PROGRESS` |
-| 429    | `RATE_LIMITED` (with `Retry-After`)                                                                                                                                                                                     |
-| 500    | `INTERNAL` (no details, no stack)                                                                                                                                                                                       |
+| Status | Codes                                                                                                                                                                                                                                                                 |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `VALIDATION_ERROR`, `INVALID_LINK`, transaction rule codes (see Shared shapes), `INSTALMENTS_NOT_ALLOWED`, `REPEAT_WITH_INSTALMENTS`                                                                                                                                  |
+| 401    | `UNAUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`                                                                                                                                                        |
+| 503    | `GOOGLE_SIGN_IN_UNAVAILABLE`                                                                                                                                                                                                                                          |
+| 413    | `PAYLOAD_TOO_LARGE`                                                                                                                                                                                                                                                   |
+| 400    | also `INVALID_JSON` (malformed request body)                                                                                                                                                                                                                          |
+| 404    | `NOT_FOUND` (also returned for records owned by another user)                                                                                                                                                                                                         |
+| 409    | `CONFLICT`, `EMAIL_TAKEN`, `NAME_TAKEN`, `LIMIT_REACHED`, `ACCOUNT_ARCHIVED`, `CATEGORY_ARCHIVED`, `IN_USE` (archive instead), `TYPE_LOCKED`, `SETUP_ALREADY_DONE`, `IDEMPOTENCY_KEY_REUSED`, `IDEMPOTENCY_IN_PROGRESS`, `EMAIL_ALREADY_VERIFIED`, `PASSWORD_NOT_SET` |
+| 429    | `RATE_LIMITED` (with `Retry-After`)                                                                                                                                                                                                                                   |
+| 500    | `INTERNAL` (no details, no stack)                                                                                                                                                                                                                                     |
 
 ## Resources
 
 ### Auth — `/auth`
 
-| Method | Path                    | Body → Response                                                                                                                          | Status                         |
-| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| POST   | `/auth/signup`          | `{ name, email, password }` → session response, `isNewUser: true`                                                                        | 201 · built                    |
-| POST   | `/auth/login`           | `{ email, password, keepSignedIn? = true }` → session response                                                                           | 200 · built                    |
-| POST   | `/auth/google`          | `{ idToken }` → session response + `isNewUser`                                                                                           | 201 new, 200 returning · built |
-| POST   | `/auth/refresh`         | web: cookie only · native: `{ refreshToken }` → `{ accessToken, accessTokenExpiresIn, refreshToken?, refreshTokenExpiresAt? }` (rotated) | 200 · built                    |
-| POST   | `/auth/logout`          | web: cookie only · native: `{ refreshToken }` → no body (ends that session)                                                              | 204 · built                    |
-| POST   | `/auth/forgot/request`  | `{ email }` → 202 (always, whether or not the email exists)                                                                              | later (needs email provider)   |
-| POST   | `/auth/forgot/verify`   | `{ email, code }` → `{ resetToken }` (short-lived, single use)                                                                           | later                          |
-| POST   | `/auth/forgot/reset`    | `{ resetToken, password }` → 204 (revokes every session)                                                                                 | later                          |
-| POST   | `/auth/change-password` | `{ currentPassword, newPassword }` → 204 (revokes the other sessions)                                                                    | later                          |
+| Method | Path                         | Body → Response                                                                                                                          | Status                         |
+| ------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| POST   | `/auth/signup`               | `{ name, email, password }` → session response, `isNewUser: true`                                                                        | 201 · built                    |
+| POST   | `/auth/login`                | `{ email, password, keepSignedIn? = true }` → session response                                                                           | 200 · built                    |
+| POST   | `/auth/google`               | `{ idToken }` → session response + `isNewUser`                                                                                           | 201 new, 200 returning · built |
+| POST   | `/auth/refresh`              | web: cookie only · native: `{ refreshToken }` → `{ accessToken, accessTokenExpiresIn, refreshToken?, refreshTokenExpiresAt? }` (rotated) | 200 · built                    |
+| POST   | `/auth/logout`               | web: cookie only · native: `{ refreshToken }` → no body (ends that session)                                                              | 204 · built                    |
+| POST   | `/auth/verify-email`         | `{ token }` → `{ emailVerified: true }`                                                                                                  | 200 · built                    |
+| POST   | `/auth/forgot-password`      | `{ email }` → no body (always, whether or not the email has an account)                                                                  | 202 · built                    |
+| POST   | `/auth/reset-password/check` | `{ token }` → no body if the reset link is still usable (does not use it up)                                                             | 204 · built                    |
+| POST   | `/auth/reset-password`       | `{ token, password }` → no body (sets the password, verifies the email, revokes every session)                                           | 204 · built                    |
+| POST   | `/auth/change-password`      | **Bearer required.** `{ currentPassword, newPassword }` → no body (keeps this session, revokes the others)                               | 204 · built                    |
 
 **Session response** (signup, login, google):
 
@@ -84,7 +85,12 @@ Owned by `kanaku-pillai-backend`. The web (`kanaku-pillai-web`) and mobile (`kan
 - **Native:** send `X-Client-Platform: ios` or `android`, and the refresh token comes back in the body. Keep it in secure storage. Sessions last 30 days, renewed on each refresh.
 - **Errors:** signup 409 `EMAIL_TAKEN`. Login 401 `INVALID_CREDENTIALS`, the same for an unknown email, a wrong password or a Google-only account. Refresh and logout 401 `UNAUTHENTICATED`. Rate limits return 429 `RATE_LIMITED`: signup 10 per hour per IP, login 10 per 15 minutes per IP and email, google 20 per 15 minutes, refresh 60 per 15 minutes.
 - **Google sign-in:** `idToken` is the Google ID token from Google Identity Services (web) or `@react-native-google-signin` (app). The server verifies it, then finds the account by Google id, links it by email, or creates it. `isNewUser: true` means the client goes to `/setup`. Errors: 401 `GOOGLE_TOKEN_INVALID`, 401 `GOOGLE_EMAIL_NOT_VERIFIED`, and 503 `GOOGLE_SIGN_IN_UNAVAILABLE` when the server has no Google client IDs configured. Linking rules are in `docs/auth/google-sign-in.md` §4.
-- **Password accounts are unverified** until email verification exists. A later Google sign-in with the same email therefore replaces that password and ends its sessions (this blocks someone pre-registering your email).
+- **Email verification:** email sign-up sends a verification link; the account is usable before it is verified (`emailVerified: false`). `POST /me/verify-email` resends it. An unverified password account is replaced by a later Google sign-in with the same email (password removed, sessions ended), which blocks someone pre-registering your email; once verified, Google links to it instead.
+- **Email links:** the web app opens `{APP_WEB_URL}/auth/verify-email#token=…` and `{APP_WEB_URL}/auth/reset-password#token=…`. The token sits in the URL **fragment**, so it never reaches a server log or a `Referer` header; the page reads it and posts it as `token`. Links are single use: verification lasts 24 hours, reset 30 minutes. A new link of the same kind replaces the previous unused one, and at most one email of each kind is sent per account per 60 seconds (extra requests still answer normally). Opening an already-used verification link of a verified account still returns 200.
+- **Forgot password:** the 202 is sent before the account lookup and the email, so neither the body nor the timing reveals whether the address has an account. Resetting works for Google-only accounts too, which gives them a first password. After a reset the user must sign in again everywhere, and a "password changed" notice is emailed.
+- **Link errors:** an unknown, used or expired token returns 400 `INVALID_LINK` (the clients show "This link has expired" with a way to request a new one). A malformed body is 400 `VALIDATION_ERROR`; `password` follows the signup rules.
+- **Change password** (signed in, the only `/auth` route that needs `Authorization: Bearer`): `newPassword` follows the signup rules and must differ from `currentPassword` (400 on `body.newPassword`). A wrong `currentPassword` is 401 `INVALID_CREDENTIALS` (clients must not treat it as an expired session). The device that made the change stays signed in, every other session ends, and a "password changed" email is sent. It does not mark the email verified. Google-only accounts get 409 `PASSWORD_NOT_SET`: they set a first password with `POST /auth/forgot-password`, which emails a reset link. Limited to 5 per 15 minutes per user.
+- **Email rate limits** (429 `RATE_LIMITED`): forgot-password 5 per 15 minutes per IP and email, reset-password (and its check) 20 per 15 minutes per IP, verify-email 20 per 15 minutes per IP, `POST /me/verify-email` 5 per 15 minutes per user.
 
 ### Shared shapes and rules
 
@@ -119,6 +125,7 @@ Rule errors (400): `CATEGORY_REQUIRED`, `CATEGORY_NOT_ALLOWED`, `CATEGORY_KIND_M
 | POST   | `/me/setup`        | see below → `{ user, accounts, categories }`                                                             | 201    |
 | GET    | `/me/sessions`     | → `[{ id, platform, userAgent, ipAddress, createdAt, lastUsedAt, current }]` (active only, newest first) |        |
 | DELETE | `/me/sessions/:id` | → 204. Signs that device out (works for the current one too)                                             |        |
+| POST   | `/me/verify-email` | no body → 202. Emails a fresh verification link. 409 `EMAIL_ALREADY_VERIFIED` once verified              |        |
 | DELETE | `/me`              | `{ confirm: "DELETE", password? }` → 204                                                                 |        |
 
 - **Settings:** `currencyCode` must be an ISO 4217 code the runtime knows (`Intl.supportedValuesOf("currency")`). Changing it **relabels** every existing entry to the new code and **never converts** amounts. `relabeledCount` says how many. `locale` defaults from the currency (INR→en-IN, USD→en-US, EUR→de-DE, GBP→en-GB, AED→en-AE, SGD→en-SG, JPY→ja-JP, otherwise en-US) unless sent explicitly. `tzid` must be a valid IANA zone, `tzMode` is `device` or `manual`, `theme` is `system`, `light` or `dark`, and `weekStart` is `mon` or `sun`.
@@ -131,13 +138,14 @@ Rule errors (400): `CATEGORY_REQUIRED`, `CATEGORY_NOT_ALLOWED`, `CATEGORY_KIND_M
     "startingBalances": {
       "savingsMinor": 15260000,
       "walletMinor": 630000,
-      "creditCardOwedMinor": 1245000
+      "creditCardOwedMinor": 1245000,
+      "investmentsMinor": 5000000
     },
     "starterCategories": true
   }
   ```
 
-  It creates the default accounts **Savings** (bank, default), **Wallet** (cash), **Credit card** and **Debit card** (linked to Savings), with the optional opening balances. With `starterCategories` (default `true`) it also creates the expense categories Food, Coffee, Snacks, Fruits, Transport, Rent, Electricity, Household, Medicine, Haircut, Gadgets and Education, and the income categories Salary, Freelance, Interest, Refund, Gift and Other. Then it sets `setupComplete: true`.
+  It creates the default accounts **Savings** (bank, default), **Wallet** (cash), **Credit card**, **Debit card** (linked to Savings) and **SIP & Stocks** (investment), with the optional opening balances (`investmentsMinor` is the SIP & Stocks balance). With `starterCategories` (default `true`) it also creates the expense categories Food, Coffee, Snacks, Fruits, Transport, Rent, Electricity, Household, Medicine, Haircut, Gadgets, Education and Others, and the income categories Salary, Freelance, Interest, Refund, Gift and Others. Then it sets `setupComplete: true`.
 
 - **Delete account:** `password` is required when the account has one. Google-only accounts confirm with `confirm` alone. All the user's data (transactions, accounts, categories, favourites, repeat rules, instalment plans, sessions) is deleted at once and permanently. 401 `INVALID_CREDENTIALS` if the password is wrong.
 
@@ -275,12 +283,13 @@ Clients show category and account names by joining with the (small, cached) `/ca
 
 Every stat sums `income` and `expense` only. Transfers are always excluded, and so are deleted entries. Percentages have one decimal.
 
-| Method | Path                                                                         | Response                                                                                                                                                                                                      |
-| ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/stats/month/:month`                                                        | `{ month, currencyCode, incomeMinor, expenseMinor, balanceMinor, byCategory: [{ categoryId, amountMinor, pct }], byAccount: [{ accountId, amountMinor }], days: [{ localDate, expenseMinor, incomeMinor }] }` |
-| GET    | `/stats/period?period=week\|month\|year&ref=YYYY-MM-DD&type=expense\|income` | `{ period, type, from, to, previousFrom, previousTo, totalMinor, previousTotalMinor, byCategory: [{ categoryId, amountMinor, pct, previousAmountMinor }] }`                                                   |
-| GET    | `/stats/trend?months=6\|12&end=YYYY-MM&type=expense\|income`                 | `{ type, points: [{ month, amountMinor }], averageMinor }`                                                                                                                                                    |
+| Method | Path                                                                         | Response                                                                                                                                                                                                                                                          |
+| ------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/stats/month/:month`                                                        | `{ month, currencyCode, incomeMinor, expenseMinor, balanceMinor, investedMinor, withdrawnMinor, afterInvestingMinor, byCategory: [{ categoryId, amountMinor, pct }], byAccount: [{ accountId, amountMinor }], days: [{ localDate, expenseMinor, incomeMinor }] }` |
+| GET    | `/stats/period?period=week\|month\|year&ref=YYYY-MM-DD&type=expense\|income` | `{ period, type, from, to, previousFrom, previousTo, totalMinor, previousTotalMinor, byCategory: [{ categoryId, amountMinor, pct, previousAmountMinor }] }`                                                                                                       |
+| GET    | `/stats/trend?months=6\|12&end=YYYY-MM&type=expense\|income`                 | `{ type, points: [{ month, amountMinor }], averageMinor }`                                                                                                                                                                                                        |
 
+- **Investing** (month view): moving money into an investment account is a transfer, so it never changes `incomeMinor`, `expenseMinor` or `balanceMinor`, and net worth is unchanged. `investedMinor` is the sum of transfers this month **into** investment accounts from any non-investment account, `withdrawnMinor` the sum **out of** investment accounts to non-investment accounts (moves between two investment accounts count as neither; archived investment accounts still count). `afterInvestingMinor = balanceMinor − investedMinor + withdrawnMinor` and may be negative. Clients display these as given.
 - `byCategory` (expense categories in the month view) is sorted by amount descending. `byAccount` is what each account spent (expenses, debit cards listed as themselves). `days` has one entry per day of the month (zeros included), which feeds both the daily bar chart and the calendar heatmap.
 - Weeks start on the user's `weekStart`. `ref` defaults to today in the user's zone, and `end` defaults to the current month.
 

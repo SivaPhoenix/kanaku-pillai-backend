@@ -16,6 +16,7 @@ import { generateToken, sha256 } from "../utils/crypto.js";
 import { isTokenExpiredError, signAccessToken, verifyAccessToken } from "../utils/jwt.js";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "../utils/password.js";
 import { isDuplicateKeyError, withTransaction } from "../utils/transaction.js";
+import { queueVerificationEmail } from "./email-auth.service.js";
 import { toUserDto } from "./user.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -78,16 +79,23 @@ export async function signup({ name, email, password }, context) {
   if (await userRepository.findByEmail(email)) throw emailTaken();
 
   const passwordHash = await hashPassword(password);
+  let created;
   try {
-    return await withTransaction(async (session) => {
+    created = await withTransaction(async (session) => {
       const user = await userRepository.create({ name, email, passwordHash }, { session });
       const tokens = await issueSession(user, { ...context, keepSignedIn: true }, { session });
-      return { user: toUserDto(user, { hasPassword: true }), tokens, isNewUser: true };
+      return { user, tokens };
     });
   } catch (error) {
     if (isDuplicateKeyError(error)) throw emailTaken();
     throw error;
   }
+  queueVerificationEmail(created.user);
+  return {
+    user: toUserDto(created.user, { hasPassword: true }),
+    tokens: created.tokens,
+    isNewUser: true,
+  };
 }
 
 export async function login({ email, password, keepSignedIn }, context) {

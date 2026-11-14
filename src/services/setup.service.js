@@ -50,6 +50,14 @@ const otherAccounts = (balances, savingsId) => [
     openingBalanceMinor: 0,
     sortOrder: 3,
   },
+  {
+    name: "SIP & Stocks",
+    type: "investment",
+    icon: "trend",
+    color: "c4",
+    openingBalanceMinor: balances.investmentsMinor ?? 0,
+    sortOrder: 4,
+  },
 ];
 
 function starterCategoryDocs() {

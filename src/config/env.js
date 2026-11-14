@@ -43,6 +43,23 @@ const envSchema = z
           ),
       ),
     ),
+    // Public web app origin; email links (verify email, reset password) open pages here.
+    APP_WEB_URL: z
+      .url({ protocol: /^https?$/, error: "must be an http(s) URL like https://app.example.com" })
+      .default("http://localhost:5173")
+      .transform((value) => value.replace(/\/+$/, "")),
+    // "console" logs emails (with their links) instead of sending them; production must use "smtp".
+    MAIL_TRANSPORT: z.enum(["console", "smtp"]).default("console"),
+    MAIL_FROM: z.string().trim().min(3).default("Kanaku Pillai <no-reply@localhost>"),
+    SMTP_HOST: z.string().trim().default("smtp.gmail.com"),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
+    // true = TLS from the first byte (port 465); false = STARTTLS upgrade (port 587).
+    SMTP_SECURE: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
+    SMTP_USER: z.string().trim().default(""),
+    SMTP_PASS: z.string().default(""),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.GOOGLE_CLIENT_IDS.length === 0) {
@@ -50,6 +67,26 @@ const envSchema = z
         code: "custom",
         path: ["GOOGLE_CLIENT_IDS"],
         message: "is required in production",
+      });
+    }
+    if (env.NODE_ENV === "production" && env.MAIL_TRANSPORT !== "smtp") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["MAIL_TRANSPORT"],
+        message: 'must be "smtp" in production (console would log reset links)',
+      });
+    }
+    if (env.MAIL_TRANSPORT === "smtp") {
+      for (const key of ["SMTP_USER", "SMTP_PASS"]) {
+        if (!env[key])
+          ctx.addIssue({ code: "custom", path: [key], message: "is required for smtp" });
+      }
+    }
+    if (env.NODE_ENV === "production" && !env.APP_WEB_URL.startsWith("https://")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["APP_WEB_URL"],
+        message: "must be https in production",
       });
     }
   });

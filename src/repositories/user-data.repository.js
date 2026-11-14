@@ -1,5 +1,6 @@
 import { Account } from "../models/account.model.js";
 import { Category } from "../models/category.model.js";
+import { EmailToken } from "../models/email-token.model.js";
 import { Favourite } from "../models/favourite.model.js";
 import { IdempotencyKey } from "../models/idempotency-key.model.js";
 import { InstallmentPlan } from "../models/installment-plan.model.js";
@@ -17,6 +18,7 @@ const USER_OWNED_MODELS = [
   Category,
   Account,
   IdempotencyKey,
+  EmailToken,
 ];
 
 // Permanently removes a user and everything they own. Sessions go first so the account is unusable at once.

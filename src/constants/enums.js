@@ -2,6 +2,12 @@ export const CLIENT_PLATFORMS = Object.freeze(["web", "ios", "android"]);
 
 export const AUTH_METHODS = Object.freeze({ PASSWORD: "password", GOOGLE: "google" });
 
+export const EMAIL_TOKEN_PURPOSE = Object.freeze({
+  VERIFY_EMAIL: "verify_email",
+  RESET_PASSWORD: "reset_password",
+});
+export const EMAIL_TOKEN_PURPOSES = Object.freeze(Object.values(EMAIL_TOKEN_PURPOSE));
+
 export const THEMES = Object.freeze(["system", "light", "dark"]);
 
 export const WEEK_STARTS = Object.freeze(["mon", "sun"]);
@@ -97,6 +103,7 @@ export const STARTER_CATEGORIES = Object.freeze({
     { name: "Haircut", icon: "haircut", color: "c6" },
     { name: "Gadgets", icon: "gadgets", color: "c3" },
     { name: "Education", icon: "education", color: "c2" },
+    { name: "Others", icon: "other", color: "c3" },
   ],
   income: [
     { name: "Salary", icon: "salary", color: "c5" },
@@ -104,7 +111,7 @@ export const STARTER_CATEGORIES = Object.freeze({
     { name: "Interest", icon: "interest", color: "c4" },
     { name: "Refund", icon: "refund", color: "c7" },
     { name: "Gift", icon: "gift", color: "c6" },
-    { name: "Other", icon: "other", color: "c3" },
+    { name: "Others", icon: "other", color: "c3" },
   ],
 });
 

@@ -3,6 +3,7 @@ import { createApp } from "./app.js";
 import { connectDb, disconnectDb } from "./config/db.js";
 import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
+import { closeMailTransport } from "./integrations/mail/mail-transport.js";
 import { ensureIndexes as ensureRateLimitIndexes } from "./repositories/rate-limit.repository.js";
 
 let server;
@@ -26,6 +27,7 @@ async function shutdown(signal, exitCode = 0) {
         server.closeIdleConnections();
       });
     }
+    closeMailTransport();
     await disconnectDb();
     logger.info("Shutdown complete");
     process.exit(exitCode);

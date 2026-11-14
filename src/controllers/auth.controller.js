@@ -8,6 +8,7 @@ import { ERROR_CODES } from "../constants/error-codes.js";
 import { HTTP_STATUS } from "../constants/http-status.js";
 import { env } from "../config/env.js";
 import * as authService from "../services/auth.service.js";
+import * as emailAuthService from "../services/email-auth.service.js";
 import { ApiError } from "../utils/api-error.js";
 import { ok } from "../utils/api-response.js";
 
@@ -105,5 +106,29 @@ export async function logout(req, res) {
   const platform = clientPlatform(req);
   await authService.logout({ refreshToken: readRefreshToken(req, platform) });
   if (platform === "web") clearRefreshCookie(res);
+  res.status(HTTP_STATUS.NO_CONTENT).end();
+}
+
+export async function verifyEmail(req, res) {
+  ok(res, HTTP_STATUS.OK, await emailAuthService.verifyEmail(req.validated.body));
+}
+
+export function forgotPassword(req, res) {
+  emailAuthService.requestPasswordReset(req.validated.body);
+  res.status(HTTP_STATUS.ACCEPTED).end();
+}
+
+export async function checkResetToken(req, res) {
+  await emailAuthService.checkResetToken(req.validated.body);
+  res.status(HTTP_STATUS.NO_CONTENT).end();
+}
+
+export async function changePassword(req, res) {
+  await emailAuthService.changePassword(req.user.id, req.user.sessionId, req.validated.body);
+  res.status(HTTP_STATUS.NO_CONTENT).end();
+}
+
+export async function resetPassword(req, res) {
+  await emailAuthService.resetPassword(req.validated.body);
   res.status(HTTP_STATUS.NO_CONTENT).end();
 }
