@@ -32,7 +32,12 @@ beforeEach(resetTestDb);
 const body = {
   currencyCode: "USD",
   tzid: "America/New_York",
-  startingBalances: { savingsMinor: 15260000, walletMinor: 630000, creditCardOwedMinor: 1245000 },
+  startingBalances: {
+    savingsMinor: 15260000,
+    walletMinor: 630000,
+    creditCardOwedMinor: 1245000,
+    investmentsMinor: 5000000,
+  },
   starterCategories: true,
 };
 
@@ -40,7 +45,7 @@ const freshUser = () => createSignedInUser({ setupComplete: false });
 const run = (headers, payload) => request(app).post("/me/setup").set(headers).send(payload);
 
 describe("POST /me/setup", () => {
-  it("creates 4 accounts, 18 categories, updates settings and completes setup", async () => {
+  it("creates 5 accounts, 19 categories, updates settings and completes setup", async () => {
     const { headers, userId } = await freshUser();
     const res = await run(headers, body);
     expect(res.status).toBe(201);
@@ -54,8 +59,14 @@ describe("POST /me/setup", () => {
     });
     expect(user).not.toHaveProperty("passwordHash");
 
-    expect(accounts.map((a) => a.name)).toEqual(["Savings", "Wallet", "Credit card", "Debit card"]);
-    const [savings, wallet, card, debit] = accounts;
+    expect(accounts.map((a) => a.name)).toEqual([
+      "Savings",
+      "Wallet",
+      "Credit card",
+      "Debit card",
+      "SIP & Stocks",
+    ]);
+    const [savings, wallet, card, debit, investments] = accounts;
     expect(savings).toMatchObject({
       type: "bank",
       isDefault: true,
@@ -82,11 +93,22 @@ describe("POST /me/setup", () => {
       balanceMinor: null,
       isDefault: false,
     });
-    expect(accounts.map((a) => a.sortOrder)).toEqual([0, 1, 2, 3]);
+    expect(investments).toMatchObject({
+      type: "investment",
+      icon: "trend",
+      color: "c4",
+      balanceMinor: 5000000,
+      isDefault: false,
+    });
+    expect(accounts.map((a) => a.sortOrder)).toEqual([0, 1, 2, 3, 4]);
 
-    expect(categories).toHaveLength(18);
-    expect(categories.filter((c) => c.kind === "expense")).toHaveLength(12);
-    expect(categories.filter((c) => c.kind === "income")).toHaveLength(6);
+    expect(categories).toHaveLength(19);
+    const expense = categories.filter((c) => c.kind === "expense");
+    const income = categories.filter((c) => c.kind === "income");
+    expect(expense).toHaveLength(13);
+    expect(income).toHaveLength(6);
+    expect(expense.at(-1).name).toBe("Others");
+    expect(income.at(-1).name).toBe("Others");
     expect(categories[0]).toMatchObject({
       name: "Food",
       kind: "expense",
@@ -98,8 +120,8 @@ describe("POST /me/setup", () => {
     const stored = await User.findById(userId);
     expect(stored.setupComplete).toBe(true);
     expect(stored.settings.currencyCode).toBe("USD");
-    expect(await Account.countDocuments({ userId })).toBe(4);
-    expect(await Category.countDocuments({ userId })).toBe(18);
+    expect(await Account.countDocuments({ userId })).toBe(5);
+    expect(await Category.countDocuments({ userId })).toBe(19);
   });
 
   it("defaults balances to zero and falls back to en-US for unknown currencies", async () => {
@@ -111,8 +133,8 @@ describe("POST /me/setup", () => {
       res.body.data.accounts.map((a) =>
         a.balanceMinor === null ? null : (a.balanceMinor ?? a.owedMinor),
       ),
-    ).toEqual([0, 0, 0, null]);
-    expect(res.body.data.categories).toHaveLength(18);
+    ).toEqual([0, 0, 0, null, 0]);
+    expect(res.body.data.categories).toHaveLength(19);
   });
 
   it("uses the mapped locale for INR", async () => {
@@ -127,7 +149,7 @@ describe("POST /me/setup", () => {
     expect(res.status).toBe(201);
     expect(res.body.data.categories).toEqual([]);
     expect(await Category.countDocuments({ userId })).toBe(0);
-    expect(await Account.countDocuments({ userId })).toBe(4);
+    expect(await Account.countDocuments({ userId })).toBe(5);
   });
 
   it("returns 409 SETUP_ALREADY_DONE on a second call and creates nothing more", async () => {
@@ -136,8 +158,8 @@ describe("POST /me/setup", () => {
     const again = await run(headers, body);
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe("SETUP_ALREADY_DONE");
-    expect(await Account.countDocuments({ userId })).toBe(4);
-    expect(await Category.countDocuments({ userId })).toBe(18);
+    expect(await Account.countDocuments({ userId })).toBe(5);
+    expect(await Category.countDocuments({ userId })).toBe(19);
 
     const done = await createSignedInUser();
     expect((await run(done.headers, body)).body.error.code).toBe("SETUP_ALREADY_DONE");

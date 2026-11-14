@@ -61,6 +61,20 @@ export function revokeAllForUser(userId, reason, { session, now = new Date() } =
   );
 }
 
+// Every active session of the user except the one making the request.
+export function revokeOthersForUser(
+  userId,
+  keepSessionId,
+  reason,
+  { session, now = new Date() } = {},
+) {
+  return Session.updateMany(
+    { userId, _id: trusted({ $ne: keepSessionId }), revokedAt: null },
+    { $set: { revokedAt: now, revokedReason: reason } },
+    { session },
+  );
+}
+
 export function listActiveForUser(userId, now = new Date()) {
   return Session.find({ userId, revokedAt: null, expiresAt: trusted({ $gt: now }) })
     .sort({ lastUsedAt: -1, _id: -1 })

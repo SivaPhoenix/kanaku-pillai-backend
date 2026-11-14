@@ -6,6 +6,7 @@ import { env } from "../src/config/env.js";
 import { logger } from "../src/config/logger.js";
 import { Account } from "../src/models/account.model.js";
 import { Category } from "../src/models/category.model.js";
+import { EmailToken } from "../src/models/email-token.model.js";
 import { Favourite } from "../src/models/favourite.model.js";
 import { IdempotencyKey } from "../src/models/idempotency-key.model.js";
 import { InstallmentPlan } from "../src/models/installment-plan.model.js";
@@ -28,6 +29,7 @@ const MODELS = [
   Favourite,
   IdempotencyKey,
   JobLock,
+  EmailToken,
 ];
 
 // Active (non-archived) accounts and categories must carry activeNameKey before its partial unique index is built,

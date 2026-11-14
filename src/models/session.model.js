@@ -15,7 +15,16 @@ const sessionSchema = new mongoose.Schema(
     lastUsedAt: { type: Date, required: true, default: Date.now },
     expiresAt: { type: Date, required: true },
     revokedAt: { type: Date },
-    revokedReason: { type: String, enum: ["logout", "reuse_detected", "account_takeover_guard"] },
+    revokedReason: {
+      type: String,
+      enum: [
+        "logout",
+        "reuse_detected",
+        "account_takeover_guard",
+        "password_reset",
+        "password_change",
+      ],
+    },
   },
   { timestamps: true, collection: "sessions" },
 );

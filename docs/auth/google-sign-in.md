@@ -85,14 +85,14 @@ Derived for the API: `authMethods: ['password' | 'google']`.
 
 ## 6. Effects on other flows
 
-| Flow                   | Google-only user (no password)                                                                                         |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Email + password login | 401 `INVALID_CREDENTIALS` (same message as a wrong password, so it reveals nothing)                                    |
-| Forgot password        | Works and sets a first password (email OTP proves ownership). This is how a Google user adds password sign-in          |
-| Change password        | Shown as "Set password" (OTP flow) because there is no current password                                                |
-| Unlink Google          | Allowed only when a password exists, so the user can never lock themselves out                                         |
-| Delete account         | Re-confirm with a fresh Google sign-in (token issued in the last 5 minutes) instead of a password, plus typed `DELETE` |
-| Settings → profile     | Shows "Signed in with Google" and the Google email                                                                     |
+| Flow                   | Google-only user (no password)                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Email + password login | 401 `INVALID_CREDENTIALS` (same message as a wrong password, so it reveals nothing)                                        |
+| Forgot password        | Works and sets a first password (the emailed reset link proves ownership). This is how a Google user adds password sign-in |
+| Change password        | Shown as "Set password" (reset-link flow) because there is no current password                                             |
+| Unlink Google          | Allowed only when a password exists, so the user can never lock themselves out                                             |
+| Delete account         | Re-confirm with a fresh Google sign-in (token issued in the last 5 minutes) instead of a password, plus typed `DELETE`     |
+| Settings → profile     | Shows "Signed in with Google" and the Google email                                                                         |
 
 ## 7. Backend implementation outline
 
@@ -117,6 +117,6 @@ Stub the verifier, then cover: new user created with `isNewUser: true` and setup
 
 ## 10. Decisions needed from the product owner
 
-1. ~~Keep email and password, or Google only?~~ **Decided (13 Nov 2026):** Google sign-in plus email/password sign-up and sign-in for now. Forgot password, change password and email verification come later with an email provider.
+1. ~~Keep email and password, or Google only?~~ **Decided (13 Nov 2026):** Google sign-in plus email/password sign-up and sign-in for now. Forgot password and email verification were added on 14 Nov 2026 as emailed links (ADR-0001); change password is still to come.
 2. **Sign in with Apple:** App Store Review Guideline 4.8 requires an iOS app that offers a third-party login such as Google to also offer an equivalent privacy-focused option, which in practice means Sign in with Apple. Plan to add it to the iOS app (and the backend, same ID-token pattern) before the first App Store submission, unless the app is Google-free on iOS.
 3. **Google Cloud project ownership:** create it under the product owner's account, and confirm the bundle ID and package name for the app.

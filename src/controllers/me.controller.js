@@ -1,4 +1,5 @@
 import { HTTP_STATUS } from "../constants/http-status.js";
+import * as emailAuthService from "../services/email-auth.service.js";
 import * as meService from "../services/me.service.js";
 import * as userService from "../services/user.service.js";
 import { ok } from "../utils/api-response.js";
@@ -27,4 +28,9 @@ export async function revokeSession(req, res) {
 export async function deleteAccount(req, res) {
   await meService.deleteAccount(req.user.id, req.validated.body);
   res.status(HTTP_STATUS.NO_CONTENT).end();
+}
+
+export async function resendVerificationEmail(req, res) {
+  await emailAuthService.resendVerificationEmail(req.user.id);
+  res.status(HTTP_STATUS.ACCEPTED).end();
 }

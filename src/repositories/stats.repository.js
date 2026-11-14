@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { TOTAL_TX_TYPES } from "../constants/enums.js";
+import { Account } from "../models/account.model.js";
 import { Transaction } from "../models/transaction.model.js";
 
 const toObjectId = (id) => new mongoose.Types.ObjectId(String(id));
@@ -66,4 +67,49 @@ export async function totalsByMonth(userId, { fromMonth, toMonth, type }) {
     { $group: { _id: "$localMonth", total: { $sum: "$amountMinor" } } },
   ]);
   return rows.map((row) => ({ month: row._id, amountMinor: row.total }));
+}
+
+// Transfers between investment accounts and the user's other accounts in a date range: money put in and taken out.
+// Moves between two investment accounts are neither. Archived investment accounts still count (history never changes).
+export async function investmentFlows(userId, { from, to }) {
+  const owner = toObjectId(userId);
+  const investmentIds = await Account.find({ userId: owner, type: "investment" }).distinct("_id");
+  if (investmentIds.length === 0) return { investedMinor: 0, withdrawnMinor: 0 };
+
+  const isInvestment = (field) => ({ $in: [field, investmentIds] });
+  const [row] = await Transaction.aggregate([
+    {
+      $match: {
+        userId: owner,
+        deletedAt: null,
+        type: "transfer",
+        localDate: { $gte: from, $lte: to },
+        $or: [{ accountId: { $in: investmentIds } }, { toAccountId: { $in: investmentIds } }],
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        invested: {
+          $sum: {
+            $cond: [
+              { $and: [isInvestment("$toAccountId"), { $not: [isInvestment("$accountId")] }] },
+              "$amountMinor",
+              0,
+            ],
+          },
+        },
+        withdrawn: {
+          $sum: {
+            $cond: [
+              { $and: [isInvestment("$accountId"), { $not: [isInvestment("$toAccountId")] }] },
+              "$amountMinor",
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ]);
+  return { investedMinor: row?.invested ?? 0, withdrawnMinor: row?.withdrawn ?? 0 };
 }

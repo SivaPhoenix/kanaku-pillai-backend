@@ -41,6 +41,34 @@ describe("loadEnv", () => {
     });
   });
 
+  it("defaults mail to the console transport and a local web URL", () => {
+    expect(loadEnv(base)).toMatchObject({
+      MAIL_TRANSPORT: "console",
+      APP_WEB_URL: "http://localhost:5173",
+      SMTP_HOST: "smtp.gmail.com",
+      SMTP_PORT: 465,
+      SMTP_SECURE: true,
+    });
+    expect(loadEnv({ ...base, APP_WEB_URL: "https://app.example.com/" }).APP_WEB_URL).toBe(
+      "https://app.example.com",
+    );
+  });
+
+  it("requires SMTP credentials for smtp, and smtp plus https links in production", () => {
+    expect(() => loadEnv({ ...base, MAIL_TRANSPORT: "smtp" })).toThrow(/SMTP_USER/);
+    const prod = {
+      ...base,
+      NODE_ENV: "production",
+      GOOGLE_CLIENT_IDS: "a.apps.googleusercontent.com",
+    };
+    expect(() => loadEnv(prod)).toThrow(/MAIL_TRANSPORT: must be "smtp"/);
+    expect(() => loadEnv(prod)).toThrow(/APP_WEB_URL: must be https/);
+    const smtp = { MAIL_TRANSPORT: "smtp", SMTP_USER: "u@example.com", SMTP_PASS: "app-pass" };
+    expect(
+      loadEnv({ ...prod, ...smtp, APP_WEB_URL: "https://app.example.com", SMTP_SECURE: "false" }),
+    ).toMatchObject({ MAIL_TRANSPORT: "smtp", SMTP_SECURE: false });
+  });
+
   it("returns a frozen object", () => {
     expect(Object.isFrozen(loadEnv(base))).toBe(true);
   });
